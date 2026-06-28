@@ -160,51 +160,74 @@ def _censor(editor, boxes, checked, mode, style, shape, mosaic_blocks, blur_stre
 def on_ui_tabs():
     with gr.Blocks(analytics_enabled=False) as tab:
         boxes_state = gr.State([])
+        gr.Markdown("### 🔞 Auto-Censor &nbsp;·&nbsp; **1** load / paint an image &nbsp;→&nbsp; "
+                    "**2** press DETECT &nbsp;→&nbsp; **3** pick regions & style &nbsp;→&nbsp; **4** press CENSOR")
+        # --- Top: three equal-sized image panels -------------------------------
+        with gr.Row(equal_height=True):
+            with gr.Column():
+                inp = gr.ImageEditor(
+                    label="1 · Image  (paint = extra censor mask)", type="pil",
+                    sources=["upload", "clipboard"],
+                    # 0.85 alpha so the painted mask is semi-transparent (see through it).
+                    brush=gr.Brush(colors=["rgba(255,45,45,0.85)"], default_size=40),
+                    eraser=gr.Eraser(), elem_id="auto_censor_input", height=340)
+                # Hidden paste target for the cross-tab "Send to Censor" buttons; its
+                # .change copies the image into the ImageEditor background.
+                paste_target = gr.Image(visible=False, elem_id="auto_censor_paste", type="pil")
+            with gr.Column():
+                preview = gr.Image(label="2 · Detected regions", interactive=False, height=340)
+            with gr.Column():
+                out = gr.Image(label="3 · Result", interactive=False, height=340)
+                download = gr.File(label="Download", file_count="multiple")
+
+        # --- Prominent step buttons (Detect is easy to miss otherwise) ----------
+        with gr.Row():
+            detect_btn = gr.Button("🔍  STEP 1 — DETECT", variant="primary", size="lg")
+            censor_btn = gr.Button("✨  STEP 2 — CENSOR", variant="primary", size="lg")
+
+        # --- All settings in one compact band (3 columns, no page scroll) -------
         with gr.Row():
             with gr.Column():
-                inp = gr.ImageEditor(label="Input / Paint mask", type="pil",
-                                     sources=["upload", "clipboard"],
-                                     brush=gr.Brush(colors=["#ff2d2d"], default_size=40),
-                                     eraser=gr.Eraser(), elem_id="auto_censor_input")
-                # Hidden paste target for the cross-tab "Send to Censor" buttons.
-                # The copypaste infra sets this gr.Image; its .change copies the
-                # picture into the ImageEditor background (an ImageEditor cannot be
-                # a reliable paste target directly, so we bounce through this).
-                paste_target = gr.Image(visible=False, elem_id="auto_censor_paste",
-                                        type="pil")
-                with gr.Row():
-                    detect_btn = gr.Button("🔍 Detect")
-                    conf = gr.Slider(0.05, 0.6, value=0.22, step=0.01, label="Confidence")
-                preview = gr.Image(label="Detected", interactive=False)
-                quick = gr.Radio(QUICK, value="Exposed only", label="Quick select")
-                classes = gr.CheckboxGroup([], label="Classes to censor")
+                conf = gr.Slider(0.05, 0.6, value=0.22, step=0.01, label="Detection sensitivity",
+                                 info="Lower = find more (and fainter) regions. 0.22 is a good default.")
+                quick = gr.Radio(QUICK, value="Exposed only", label="Quick pick",
+                                 info="Bulk-select which detected regions to censor.")
+                classes = gr.CheckboxGroup([], label="Regions to censor",
+                                           info="Press DETECT first; only ticked regions are censored.")
             with gr.Column():
-                out = gr.Image(label="Result", interactive=False)
-                with gr.Row():
-                    censor_btn = gr.Button("✨ CENSOR", variant="primary")
-                    download = gr.File(label="Download", file_count="multiple")
-                mode = gr.Radio(["Censor", "Stylize"], value="Censor", label="Mode")
-                with gr.Row():
-                    style = gr.Dropdown(STYLES, value="mosaic", label="Style")
-                    shape = gr.Dropdown(SHAPES, value="auto", label="Shape")
-                with gr.Accordion("Style options", open=False):
-                    mosaic_blocks = gr.Slider(3, 40, value=10, step=1, label="Mosaic blocks")
-                    blur_strength = gr.Slider(10, 100, value=70, step=1, label="Blur strength")
+                mode = gr.Radio(["Censor", "Stylize"], value="Censor", label="Mode",
+                                info="Censor = hide the regions. Stylize = effect the background, keep regions visible.")
+                style = gr.Dropdown(STYLES, value="mosaic", label="Censor style",
+                                    info="How regions are hidden: mosaic / blur / black bar / stripes / manga / glitch.")
+                shape = gr.Dropdown(SHAPES, value="auto", label="Region shape",
+                                    info="auto = oval over private parts, rectangle elsewhere.")
+            with gr.Column():
+                with gr.Accordion("Strength", open=True):
+                    mosaic_blocks = gr.Slider(3, 40, value=10, step=1, label="Mosaic blocks",
+                                              info="Fewer blocks = chunkier mosaic.")
+                    blur_strength = gr.Slider(10, 100, value=70, step=1, label="Blur strength",
+                                              info="Higher = blurrier.")
+                    bar_count = gr.Slider(2, 24, value=9, step=1, label="Bar / stripe count",
+                                          info="Used by the bar / stripes / manga styles.")
                     glitch_intensity = gr.Slider(10, 100, value=70, step=1, label="Glitch intensity")
-                    glitch_seed = gr.Number(value=7, precision=0, label="Glitch seed")
-                    bar_count = gr.Slider(2, 24, value=9, step=1, label="Bar count")
+                with gr.Accordion("More options", open=False):
+                    padding = gr.Slider(0.0, 0.5, value=0.08, step=0.01, label="Region padding",
+                                        info="Grow each region a bit before censoring.")
+                    merge_gap = gr.Slider(0, 100, value=30, step=1, label="Merge gap",
+                                          info="Regions closer than this merge into one block.")
                     bar_color = gr.ColorPicker(value="#0a0a0a", label="Bar color")
-                with gr.Accordion("Region", open=False):
-                    padding = gr.Slider(0.0, 0.5, value=0.08, step=0.01, label="Padding")
-                    merge_gap = gr.Slider(0, 100, value=30, step=1, label="Merge gap")
-                with gr.Accordion("Stylize background", open=False):
-                    bg_effect = gr.Dropdown(BG_EFFECTS, value="glitch", label="Bg effect")
-                    bg_intensity = gr.Slider(0, 100, value=70, step=1, label="Bg intensity")
-                with gr.Row():
-                    box_frames = gr.Checkbox(value=False, label="Box frames")
-                    frame_labels = gr.Checkbox(value=True, label="Labels")
-                preset = gr.Dropdown(PRESETS, value="None", label="Export preset")
-                status = gr.HTML("")
+                    glitch_seed = gr.Number(value=7, precision=0, label="Glitch seed",
+                                            info="Change for a different random glitch pattern.")
+                    bg_effect = gr.Dropdown(BG_EFFECTS, value="glitch", label="Stylize background",
+                                            info="Background effect when Mode = Stylize.")
+                    bg_intensity = gr.Slider(0, 100, value=70, step=1, label="Background intensity")
+                    with gr.Row():
+                        box_frames = gr.Checkbox(value=False, label="Draw detection boxes",
+                                                 info="Overlay detection rectangles on the result.")
+                        frame_labels = gr.Checkbox(value=True, label="Box labels")
+                    preset = gr.Dropdown(PRESETS, value="None", label="Export preset",
+                                         info="JP mosaic presets (DLsite/FANZA/Pixiv) + Master/Both. Overrides the style.")
+        status = gr.HTML("")
 
         detect_btn.click(_detect, [inp, conf], [boxes_state, preview, classes, status])
         quick.change(_quick, [boxes_state, quick], [classes])
