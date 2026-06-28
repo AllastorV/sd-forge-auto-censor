@@ -80,4 +80,17 @@
     z.s = 1; z.x = 0; z.y = 0;
     draw(img, z);
   });
+
+  // "Fit / center" button — reset both display panels to a centred 1x fit.
+  function resetAll() {
+    document.querySelectorAll("#ac_preview img, #ac_result img").forEach(function (img) {
+      const z = state(img);
+      z.s = 1; z.x = 0; z.y = 0;
+      img.style.transform = "";
+      img.style.cursor = "";
+    });
+  }
+  document.addEventListener("click", function (e) {
+    if (e.target && e.target.closest && e.target.closest("#ac_reset_zoom")) resetAll();
+  });
 })();

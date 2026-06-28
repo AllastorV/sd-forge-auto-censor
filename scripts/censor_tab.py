@@ -192,6 +192,10 @@ def on_ui_tabs():
                 out = gr.Image(label="3 · Result", interactive=False, elem_id="ac_result")
                 download = gr.File(label="Download", file_count="multiple")
 
+        # Reset zoom/pan of the Detected & Result panels back to a centred fit.
+        with gr.Row():
+            gr.Button("⊙ Fit / center view", elem_id="ac_reset_zoom", size="sm")
+
         # --- Prominent step buttons (Detect is easy to miss otherwise) ----------
         with gr.Row():
             detect_btn = gr.Button("🔍  Detect", variant="primary", size="lg")
