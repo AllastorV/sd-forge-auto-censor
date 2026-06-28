@@ -172,24 +172,23 @@ def on_ui_tabs():
         # toolbar has a zoom control, and each result image has a fullscreen button.
         gr.HTML("<style>#auto_censor_tab{zoom:0.95;}</style>")
         # --- Top: three equal-sized image panels -------------------------------
-        with gr.Row(equal_height=True):
+        # No fixed height / equal_height: a fixed height squished the ImageEditor and
+        # clipped its bottom Layer/brush toolbar. Natural sizing lets the toolbars fit
+        # and shows the full image; zoom/pan are native (editor toolbar + fullscreen).
+        with gr.Row():
             with gr.Column():
                 inp = gr.ImageEditor(
                     label="1 · Image  (paint = extra censor mask)", type="pil",
                     sources=["upload", "clipboard"],
-                    # 0.85 alpha so the painted mask is semi-transparent (see through it).
                     brush=gr.Brush(colors=["rgba(255,45,45,0.85)"], default_size=40),
-                    eraser=gr.Eraser(), elem_id="auto_censor_input", height=340,
-                    elem_classes=["ac-img"])
+                    eraser=gr.Eraser(), elem_id="auto_censor_input")
                 # Hidden paste target for the cross-tab "Send to Censor" buttons; its
                 # .change copies the image into the ImageEditor background.
                 paste_target = gr.Image(visible=False, elem_id="auto_censor_paste", type="pil")
             with gr.Column():
-                preview = gr.Image(label="2 · Detected regions", interactive=False,
-                                   height=340, elem_classes=["ac-img"])
+                preview = gr.Image(label="2 · Detected regions", interactive=False)
             with gr.Column():
-                out = gr.Image(label="3 · Result", interactive=False,
-                               height=340, elem_classes=["ac-img"])
+                out = gr.Image(label="3 · Result", interactive=False)
                 download = gr.File(label="Download", file_count="multiple")
 
         # --- Prominent step buttons (Detect is easy to miss otherwise) ----------
