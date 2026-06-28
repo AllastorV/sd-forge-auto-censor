@@ -509,23 +509,36 @@ def apply_auto_censor(pil, boxes: list, opts: dict, manual_mask=None):
         orig = img_rgb.copy()
         bg_effect = opts.get("bgEffect", "glitch")
         bg_intensity = opts.get("bgIntensity", 70)
+        # "reverse <effect>" inverts which side gets the effect: the REGIONS are
+        # effected and the background stays original (instead of vice-versa).
+        reverse = bg_effect.startswith("reverse")
+        effect = bg_effect[len("reverse "):] if reverse else bg_effect
 
-        if bg_effect == "grayscale":
+        # Build the effected version of the whole image once.
+        styled = orig.copy()
+        if effect == "grayscale":
             luma = (
-                img_rgb[:, :, 0].astype(np.float32) * 0.299 +
-                img_rgb[:, :, 1].astype(np.float32) * 0.587 +
-                img_rgb[:, :, 2].astype(np.float32) * 0.114
+                orig[:, :, 0].astype(np.float32) * 0.299 +
+                orig[:, :, 1].astype(np.float32) * 0.587 +
+                orig[:, :, 2].astype(np.float32) * 0.114
             ).astype(np.uint8)
-            img_rgb[:, :, 0] = luma
-            img_rgb[:, :, 1] = luma
-            img_rgb[:, :, 2] = luma
-        elif bg_effect == "glitch":
-            img_rgb[:] = _glitch_whole(orig, bg_intensity, rand, gray=True)
-        elif bg_effect == "blur":
+            styled[:, :, 0] = luma
+            styled[:, :, 1] = luma
+            styled[:, :, 2] = luma
+        elif effect == "glitch":
+            styled = _glitch_whole(orig, bg_intensity, rand, gray=True)
+        elif effect == "blur":
             sigma = blur_radius(W, H, bg_intensity)
-            img_rgb[:] = cv2.GaussianBlur(orig, (0, 0), sigmaX=sigma)
+            styled = cv2.GaussianBlur(orig, (0, 0), sigmaX=sigma)
+        # effect == "none": styled stays == orig
 
-        # Reveal original (coloured) pixels inside each box rect (no padding)
+        if reverse:
+            img_rgb[:] = orig      # background original; regions get the effect
+            fill = styled
+        else:
+            img_rgb[:] = styled    # background effected; regions revealed original
+            fill = orig
+
         for b in boxes:
             bx = max(0, jround(b["x1"] * W))
             by = max(0, jround(b["y1"] * H))
@@ -533,7 +546,7 @@ def apply_auto_censor(pil, boxes: list, opts: dict, manual_mask=None):
             bh = min(H - by, jround((b["y2"] - b["y1"]) * H))
             if bw < 2 or bh < 2:
                 continue
-            img_rgb[by:by + bh, bx:bx + bw] = orig[by:by + bh, bx:bx + bw]
+            img_rgb[by:by + bh, bx:bx + bw] = fill[by:by + bh, bx:bx + bw]
 
     else:
         # Censor mode (default)

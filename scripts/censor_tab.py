@@ -44,7 +44,8 @@ _OUT_DIR.mkdir(exist_ok=True)
 
 STYLES = ["mosaic", "blur", "bar", "barsV", "barsH", "manga", "glitch"]
 SHAPES = ["auto", "rect", "ellipse"]
-BG_EFFECTS = ["glitch", "grayscale", "blur", "none"]
+BG_EFFECTS = ["glitch", "grayscale", "blur",
+              "reverse glitch", "reverse grayscale", "reverse blur", "none"]
 PRESETS = ["None", "DLsite", "FANZA", "Pixiv", "Bar", "Master", "Both"]
 QUICK = ["Exposed only", "All sensitive", "All", "None"]
 
@@ -164,7 +165,8 @@ def on_ui_tabs():
         # (grab the bottom-right corner of any of the three image boxes).
         gr.HTML("<style>"
                 "#auto_censor_tab{zoom:0.95;}"
-                "#auto_censor_tab .ac-img{resize:both;overflow:auto;min-height:140px;}"
+                "#auto_censor_tab .ac-img{width:320px;margin-left:auto;margin-right:auto;"
+                "resize:both;overflow:auto;min-height:140px;}"
                 "</style>")
         # --- Top: three equal-sized image panels -------------------------------
         with gr.Row(equal_height=True):
@@ -208,6 +210,13 @@ def on_ui_tabs():
                                     info="How regions are hidden: mosaic / blur / black bar / stripes / manga / glitch.")
                 shape = gr.Dropdown(SHAPES, value="auto", label="Region shape",
                                     info="auto = oval over private parts, rectangle elsewhere.")
+                # Stylize-only controls — appear right here when Mode = Stylize.
+                with gr.Group(visible=False) as stylize_box:
+                    bg_effect = gr.Dropdown(BG_EFFECTS, value="glitch", label="Stylize effect",
+                                            info="'reverse *' effects the REGIONS instead of the background.")
+                    bg_intensity = gr.Slider(0, 100, value=70, step=1, label="Stylize intensity")
+                preset = gr.Dropdown(PRESETS, value="None", label="Export preset",
+                                     info="JP mosaic presets (DLsite/FANZA/Pixiv) + Master/Both. Overrides the style.")
             with gr.Column():
                 with gr.Accordion("Strength", open=True):
                     mosaic_blocks = gr.Slider(3, 40, value=10, step=1, label="Mosaic blocks",
@@ -225,19 +234,16 @@ def on_ui_tabs():
                     bar_color = gr.ColorPicker(value="#0a0a0a", label="Bar color")
                     glitch_seed = gr.Number(value=7, precision=0, label="Glitch seed",
                                             info="Change for a different random glitch pattern.")
-                    bg_effect = gr.Dropdown(BG_EFFECTS, value="glitch", label="Stylize background",
-                                            info="Background effect when Mode = Stylize.")
-                    bg_intensity = gr.Slider(0, 100, value=70, step=1, label="Background intensity")
                     with gr.Row():
                         box_frames = gr.Checkbox(value=False, label="Draw detection boxes",
                                                  info="Overlay detection rectangles on the result.")
                         frame_labels = gr.Checkbox(value=True, label="Box labels")
-                    preset = gr.Dropdown(PRESETS, value="None", label="Export preset",
-                                         info="JP mosaic presets (DLsite/FANZA/Pixiv) + Master/Both. Overrides the style.")
         status = gr.HTML("")
 
         detect_btn.click(_detect, [inp, conf], [boxes_state, preview, classes, status])
         quick.change(_quick, [boxes_state, quick], [classes])
+        # Show the stylize controls only in Stylize mode.
+        mode.change(lambda m: gr.update(visible=(m == "Stylize")), [mode], [stylize_box])
         censor_btn.click(
             _censor,
             [inp, boxes_state, classes, mode, style, shape, mosaic_blocks, blur_strength,
