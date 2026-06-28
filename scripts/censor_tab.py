@@ -171,7 +171,7 @@ def on_ui_tabs():
                 # picture into the ImageEditor background (an ImageEditor cannot be
                 # a reliable paste target directly, so we bounce through this).
                 paste_target = gr.Image(visible=False, elem_id="auto_censor_paste",
-                                        type="pil", image_mode="RGBA")
+                                        type="pil")
                 with gr.Row():
                     detect_btn = gr.Button("🔍 Detect")
                     conf = gr.Slider(0.05, 0.6, value=0.22, step=0.01, label="Confidence")
@@ -246,6 +246,15 @@ def _inject_send_button(tabname, gallery):
         btn = ToolButton(label, elem_id=btn_id, tooltip=tooltip)
     else:
         btn = gr.Button(label, elem_id=btn_id)
+    # Pre-register the destination tabname so Forge's connect_paste_params_buttons()
+    # never KeyErrors on it (which would break OTHER tabs' paste buttons) if the
+    # Censor tab's on_ui_tabs fails to load before add_paste_fields runs. The real
+    # add_paste_fields(paste_target) in on_ui_tabs overwrites this sentinel.
+    try:
+        if _CENSOR_TABNAME not in cp.paste_fields:
+            cp.add_paste_fields(_CENSOR_TABNAME, None, [])
+    except Exception:  # noqa: BLE001
+        pass
     cp.register_paste_params_button(
         cp.ParamBinding(
             paste_button=btn,
