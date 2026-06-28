@@ -10,6 +10,24 @@ from PIL import Image, ImageDraw
 
 from modules import script_callbacks
 
+# Cross-tab "Send to Censor" support. In this fork the copypaste infra lives in
+# modules.infotext_utils (older A1111 named it generation_parameters_copypaste).
+try:
+    from modules import infotext_utils as cp
+except Exception:  # noqa: BLE001 - fallback for older naming
+    try:
+        from modules import generation_parameters_copypaste as cp
+    except Exception:  # noqa: BLE001
+        cp = None
+try:
+    from modules.ui_components import ToolButton
+except Exception:  # noqa: BLE001
+    ToolButton = None
+
+_CENSOR_TABNAME = "auto_censor"
+# Source galleries captured from txt2img / img2img output panels (filled by on_after_component).
+_source_galleries = {}
+
 _dir = str(Path(__file__).resolve().parent)
 if _dir not in sys.path:
     sys.path.insert(0, _dir)
@@ -148,6 +166,12 @@ def on_ui_tabs():
                                      sources=["upload", "clipboard"],
                                      brush=gr.Brush(colors=["#ff2d2d"], default_size=40),
                                      eraser=gr.Eraser(), elem_id="auto_censor_input")
+                # Hidden paste target for the cross-tab "Send to Censor" buttons.
+                # The copypaste infra sets this gr.Image; its .change copies the
+                # picture into the ImageEditor background (an ImageEditor cannot be
+                # a reliable paste target directly, so we bounce through this).
+                paste_target = gr.Image(visible=False, elem_id="auto_censor_paste",
+                                        type="pil", image_mode="RGBA")
                 with gr.Row():
                     detect_btn = gr.Button("🔍 Detect")
                     conf = gr.Slider(0.05, 0.6, value=0.22, step=0.01, label="Confidence")
@@ -191,7 +215,68 @@ def on_ui_tabs():
              bg_effect, bg_intensity, box_frames, frame_labels, preset, conf],
             [out, download, status],
         )
+
+        # When the copypaste infra drops an image into the hidden target, load it
+        # into the ImageEditor background (keeps any future brush layers empty).
+        def _to_editor(img):
+            if img is None:
+                return gr.update()
+            return {"background": img, "layers": [], "composite": img}
+
+        paste_target.change(_to_editor, [paste_target], [inp], show_progress=False)
+
+        # Register the Censor tab as a paste destination so Forge wires the
+        # "Send to Censor" buttons (image copy + JS switch_to_auto_censor).
+        if cp is not None:
+            try:
+                cp.add_paste_fields(_CENSOR_TABNAME, paste_target, [])
+            except Exception as e:  # noqa: BLE001
+                print(f"[auto-censor] add_paste_fields failed: {e}")
+
     return [(tab, "\U0001f51e Censor", "auto_censor_tab")]
 
 
+def _inject_send_button(tabname, gallery):
+    """Add a 🔞 Send-to-Censor ToolButton into the current tool-button Row and
+    register it with the copypaste infra (source=gallery, dest=auto_censor)."""
+    label = "\U0001f51e"
+    tooltip = "Send the selected image to the Censor tab."
+    btn_id = f"{tabname}_send_to_auto_censor"
+    if ToolButton is not None:
+        btn = ToolButton(label, elem_id=btn_id, tooltip=tooltip)
+    else:
+        btn = gr.Button(label, elem_id=btn_id)
+    cp.register_paste_params_button(
+        cp.ParamBinding(
+            paste_button=btn,
+            tabname=_CENSOR_TABNAME,
+            source_image_component=gallery,
+        )
+    )
+
+
+def on_after_component(component, **kwargs):
+    if cp is None:
+        return
+    elem_id = getattr(component, "elem_id", None) or kwargs.get("elem_id")
+    if not elem_id:
+        return
+    # Capture the txt2img / img2img output galleries (created before the buttons).
+    if elem_id in ("txt2img_gallery", "img2img_gallery"):
+        _source_galleries[elem_id[: -len("_gallery")]] = component
+        return
+    # Anchor on the existing "Send to extras" button so our button lands in the
+    # same tool-button Row, immediately after it.
+    for tabname in ("txt2img", "img2img"):
+        if elem_id == f"{tabname}_send_to_extras":
+            gallery = _source_galleries.get(tabname)
+            if gallery is not None:
+                try:
+                    _inject_send_button(tabname, gallery)
+                except Exception as e:  # noqa: BLE001
+                    print(f"[auto-censor] inject send button failed ({tabname}): {e}")
+            return
+
+
+script_callbacks.on_after_component(on_after_component)
 script_callbacks.on_ui_tabs(on_ui_tabs)
