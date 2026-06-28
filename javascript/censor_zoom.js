@@ -28,17 +28,23 @@
   function st(el) { if (!el._acz) el._acz = { s: 1, x: 0, y: 0 }; return el._acz; }
   function draw(el, z) {
     if (el.parentElement) el.parentElement.style.overflow = "hidden";
-    // The stage/canvas wrapper has a 5px border-radius; while zoomed its rounded
-    // clip shows as a stray frame over the image, so flatten it during zoom.
-    el.style.borderRadius = z.s > 1 ? "0" : "";
+    // flatten the wrapper's 5px rounded corner while zoomed (it shows as a stray frame)
+    el.style.borderRadius = "0";
     el.style.transformOrigin = "0 0";
     el.style.transform = "translate(" + z.x + "px," + z.y + "px) scale(" + z.s + ")";
     el.style.willChange = "transform";
   }
-  function reset(el) {
+  // Fully remove every inline style we added — used on zoom-out-to-1 and reset, so
+  // no leftover transform/overflow lingers (that left a faint frame at rest).
+  function clear(el) {
     if (!el) return;
     const z = st(el); z.s = 1; z.x = 0; z.y = 0;
-    el.style.transform = ""; el.style.borderRadius = ""; el.style.cursor = "";
+    el.style.transform = "";
+    el.style.transformOrigin = "";
+    el.style.willChange = "";
+    el.style.borderRadius = "";
+    el.style.cursor = "";
+    if (el.parentElement) el.parentElement.style.overflow = "";
   }
 
   document.addEventListener("wheel", function (e) {
@@ -53,10 +59,10 @@
     const cx = e.clientX - pr.left, cy = e.clientY - pr.top;
     const ix = (cx - z.x) / z.s, iy = (cy - z.y) / z.s;
     const ns = Math.max(1, Math.min(MAX, z.s * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
+    if (ns <= 1.001) { clear(el); return; }   // back to 1x → strip every leftover style
     z.s = ns; z.x = cx - ix * ns; z.y = cy - iy * ns;
-    if (z.s <= 1.001) { z.s = 1; z.x = 0; z.y = 0; }
     draw(el, z);
-    if (p.pan) el.style.cursor = z.s > 1 ? "grab" : "";
+    if (p.pan) el.style.cursor = "grab";
   }, { passive: false, capture: true });
 
   // drag-pan (Detected / Result only — the editor's mousedown is for painting)
@@ -103,7 +109,7 @@
       b.addEventListener("click", function (e) {
         e.preventDefault();
         e.stopPropagation();
-        reset(elOf(p));
+        clear(elOf(p));
       });
       if (getComputedStyle(host).position === "static") host.style.position = "relative";
       host.appendChild(b);

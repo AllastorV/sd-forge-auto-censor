@@ -122,7 +122,7 @@ def _quick(boxes, mode):
 
 def _censor(editor, boxes, checked, mode, style, shape, mosaic_blocks, blur_strength,
             glitch_intensity, glitch_seed, bar_count, bar_thickness, bar_color, padding, merge_gap,
-            bg_effect, bg_intensity, box_frames, frame_labels, preset, conf):
+            bg_effect, bg_intensity, box_frames, frame_labels, preset, conf, quick):
     bg = _bg_of(editor)
     if ce is None or bg is None:
         return None, None, "Load an image first."
@@ -131,6 +131,15 @@ def _censor(editor, boxes, checked, mode, style, shape, mosaic_blocks, blur_stre
         boxes = nd.detect(bg, float(conf))
     checkset = set(checked or [])
     sel = [b for b in boxes if _label_str(b) in checkset] if checkset else []
+    # Fallback: if the checkbox state didn't sync (intermittent Gradio timing) but a
+    # quick filter is active, derive the selection straight from the quick filter.
+    if not sel and quick and quick != "None":
+        if quick == "Exposed only":
+            sel = [b for b in boxes if b.get("exposed")]
+        elif quick == "All sensitive":
+            sel = [b for b in boxes if b.get("sensitive")]
+        elif quick == "All":
+            sel = list(boxes)
     mask = _mask_of(editor, *bg.size)
     opts = {
         "mode": mode.lower(), "style": style, "shape": shape, "barColor": bar_color,
@@ -254,7 +263,7 @@ def on_ui_tabs():
             _censor,
             [inp, boxes_state, classes, mode, style, shape, mosaic_blocks, blur_strength,
              glitch_intensity, glitch_seed, bar_count, bar_thickness, bar_color, padding, merge_gap,
-             bg_effect, bg_intensity, box_frames, frame_labels, preset, conf],
+             bg_effect, bg_intensity, box_frames, frame_labels, preset, conf, quick],
             [out, download, status],
         )
 
