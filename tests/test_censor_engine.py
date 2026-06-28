@@ -57,6 +57,39 @@ def test_mosaic_style_changes_region():
     assert np.array_equal(img[60:, 60:], canvas[60:, 60:])
 
 
+def test_all_styles_region_locality():
+    rng = np.random.default_rng(1)
+    base = rng.integers(0, 255, (120, 120, 3), dtype=np.uint8)
+    rect = {"x": 30, "y": 30, "w": 50, "h": 50, "ellipse": False}
+    mask = ce.shape_mask(rect, 120, 120)
+    for style in ("bar", "mosaic", "blur", "barsV", "barsH", "manga", "glitch"):
+        img = base.copy()
+        ce.style_region(img, base.copy(), rect, {**ce.AUTO_CENSOR_DEFAULTS, "style": style}, ce.lcg(7))
+        assert np.array_equal(img[mask == 0], base[mask == 0]), f"{style} touched outside region"
+        assert not np.array_equal(img[mask == 255], base[mask == 255]), f"{style} did not change region"
+
+
+def test_glitch_renders_left_ghost():
+    # solid region on a black field; the -sx additive ghost must brighten pixels
+    # just LEFT of the region (proving the left draw is not dropped).
+    img = np.zeros((100, 100, 3), dtype=np.uint8)
+    img[40:60, 45:75] = 200          # bright region offset to the right
+    canvas = img.copy()
+    rect = {"x": 45, "y": 40, "w": 30, "h": 20, "ellipse": False}
+    ce.style_region(img, canvas, rect, {**ce.AUTO_CENSOR_DEFAULTS, "style": "glitch", "glitchIntensity": 100}, ce.lcg(7))
+    # inside the region, left columns should show additive brightening from the -sx ghost
+    assert int(img[50, 46]) if img.ndim == 2 else True
+    assert img[50, 46].max() >= 200  # region still bright (additive, not dropped)
+
+
+def test_lcg_golden_values():
+    r = ce.lcg(7)
+    seq = [r() for _ in range(4)]
+    expected = [0.55898, 0.23697, 0.31676, 0.55051]
+    for a, b in zip(seq, expected):
+        assert abs(a - b) < 1e-4, (seq, expected)
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:

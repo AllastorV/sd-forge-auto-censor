@@ -17,8 +17,14 @@ Canvas-2D → numpy translation notes:
 """
 from __future__ import annotations
 
+import math
 import numpy as np
 import cv2
+
+
+def jround(x: float) -> int:
+    """JS Math.round equivalent: floor(x + 0.5) — ties round up, not banker's."""
+    return math.floor(x + 0.5)
 
 # ---------------------------------------------------------------------------
 # Defaults (mirror of AUTO_CENSOR_DEFAULTS in autoCensor.ts)
@@ -129,10 +135,10 @@ def box_to_rect(box: dict, W: int, H: int, padding: float, shape: str) -> dict:
     bh = (box["y2"] - box["y1"]) * H
     px = bw * padding
     py = bh * padding
-    x = max(0, round(bx - px))
-    y = max(0, round(by - py))
-    w = min(W - x, round(bw + 2 * px))
-    h = min(H - y, round(bh + 2 * py))
+    x = max(0, jround(bx - px))
+    y = max(0, jround(by - py))
+    w = min(W - x, jround(bw + 2 * px))
+    h = min(H - y, jround(bh + 2 * py))
     ellipse = shape == "ellipse" or (shape == "auto" and bool(box.get("ellipse", False)))
     return {"x": x, "y": y, "w": w, "h": h, "ellipse": ellipse}
 
@@ -141,8 +147,8 @@ def box_to_rect(box: dict, W: int, H: int, padding: float, shape: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def blur_radius(w: int, h: int, strength: float) -> int:
-    """Blur sigma in pixels: max(2, round(longest/100 * strength/100 * 28))."""
-    return max(2, round((max(w, h) / 100) * (strength / 100) * 28))
+    """Blur sigma in pixels: max(2, jround(longest/100 * strength/100 * 28))."""
+    return max(2, jround((max(w, h) / 100) * (strength / 100) * 28))
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -162,9 +168,9 @@ def shape_mask(rect: dict, W: int, H: int) -> np.ndarray:
     mask = np.zeros((H, W), dtype=np.uint8)
     x, y, w, h = rect["x"], rect["y"], rect["w"], rect["h"]
     if rect.get("ellipse", False):
-        cx, cy = round(x + w / 2), round(y + h / 2)
-        ax = round(w / 2 * 1.16)
-        ay = round(h / 2 * 1.16)
+        cx, cy = jround(x + w / 2), jround(y + h / 2)
+        ax = jround(w / 2 * 1.16)
+        ay = jround(h / 2 * 1.16)
         cv2.ellipse(mask, (cx, cy), (ax, ay), 0, 0, 360, 255, -1)
     else:
         mask[y : y + h, x : x + w] = 255
@@ -213,9 +219,9 @@ def style_region(
     # ------------------------------------------------------------------
     elif style == "mosaic":
         longest = max(w, h)
-        blocks = max(3, round(opts.get("mosaicBlocks", 10)))
-        sw = max(2, round((w / longest) * blocks))
-        sh = max(2, round((h / longest) * blocks))
+        blocks = max(3, jround(opts.get("mosaicBlocks", 10)))
+        sw = max(2, jround((w / longest) * blocks))
+        sh = max(2, jround((h / longest) * blocks))
         region = canvas[y : y + h, x : x + w]
         small = cv2.resize(region, (sw, sh), interpolation=cv2.INTER_AREA)
         big = cv2.resize(small, (w, h), interpolation=cv2.INTER_NEAREST)
@@ -240,7 +246,7 @@ def style_region(
     # ------------------------------------------------------------------
     elif style in ("barsV", "barsH", "manga"):
         color = np.array(parse_color(opts.get("barColor", "#0a0a0a")), dtype=np.uint8)
-        count = max(2, round(opts.get("barCount", 9)))
+        count = max(2, jround(opts.get("barCount", 9)))
         # Start from the canvas so image peeks through gaps
         temp = canvas.copy()
 
@@ -249,8 +255,8 @@ def style_region(
             period = w / count
             bw_bar = period * 0.55
             for i in range(count):
-                x0 = round(x + i * period + (period - bw_bar) / 2)
-                x1 = round(x0 + bw_bar)
+                x0 = jround(x + i * period + (period - bw_bar) / 2)
+                x1 = jround(x0 + bw_bar)
                 x0 = max(x, min(x + w, x0))
                 x1 = max(x, min(x + w, x1))
                 if x0 < x1:
@@ -261,8 +267,8 @@ def style_region(
             period = h / count
             bh_bar = period * 0.55
             for i in range(count):
-                y0 = round(y + i * period + (period - bh_bar) / 2)
-                y1 = round(y0 + bh_bar)
+                y0 = jround(y + i * period + (period - bh_bar) / 2)
+                y1 = jround(y0 + bh_bar)
                 y0 = max(y, min(y + h, y0))
                 y1 = max(y, min(y + h, y1))
                 if y0 < y1:
@@ -277,21 +283,21 @@ def style_region(
                 gap_y = y0 + bh_bar
                 gap_h = period - bh_bar
                 if gap_h > 0.5:
-                    off = round((1 if i % 2 == 0 else -1) * w * 0.12)
-                    src_y1 = max(0, round(gap_y))
-                    src_y2 = min(H_img, round(gap_y + gap_h))
+                    off = jround((1 if i % 2 == 0 else -1) * w * 0.12)
+                    src_y1 = max(0, jround(gap_y))
+                    src_y2 = min(H_img, jround(gap_y + gap_h))
                     if src_y1 < src_y2:
                         sliver = canvas[src_y1:src_y2, x : x + w].copy()
                         dst_x = x + off
-                        sc = max(0, -off)            # src col offset
+                        sc = max(0, -dst_x)          # = max(0, -(x + off)); clamp of dst start
                         dc = max(0, dst_x)           # dst col start (clamped)
                         de = min(W_img, dst_x + w)   # dst col end (clamped)
                         cw = de - dc
                         if cw > 0 and sc + cw <= w:
                             temp[src_y1:src_y2, dc:de] = sliver[:, sc : sc + cw]
                 # Draw bar over the gap
-                bar_y1 = max(0, round(y0))
-                bar_y2 = min(H_img, round(y0 + bh_bar))
+                bar_y1 = max(0, jround(y0))
+                bar_y2 = min(H_img, jround(y0 + bh_bar))
                 if bar_y1 < bar_y2:
                     temp[bar_y1:bar_y2, x : x + w] = color
 
@@ -302,7 +308,7 @@ def style_region(
     # ------------------------------------------------------------------
     else:
         k = opts.get("glitchIntensity", 70) / 100
-        sx = round(w * 0.06 * k) + 1
+        sx = jround(w * 0.06 * k) + 1
         region = canvas[y : y + h, x : x + w].astype(np.float32)
 
         # Start from a float copy of the current img for additive blending
@@ -311,7 +317,7 @@ def style_region(
         def _add_region_shifted(shift_x: int) -> None:
             """Additively blend region into temp shifted by shift_x cols, alpha=0.85."""
             dst_x = x + shift_x
-            sc = max(0, -shift_x)        # source column start in region
+            sc = max(0, -dst_x)          # = max(0, -(x + shift_x)); clamp of dst start
             dc = max(0, dst_x)           # destination column start (clamped)
             de = min(W_img, dst_x + w)   # destination column end (clamped)
             cw = de - dc
@@ -332,17 +338,17 @@ def style_region(
         _add_region_shifted(sx)
 
         # Random horizontal slice displacements from canvas (source-over)
-        slices = round((4 + rand() * 10) * (0.4 + k))
+        slices = jround((4 + rand() * 10) * (0.4 + k))
         for _ in range(int(slices)):
             sy = y + int(rand() * h)
             sh_s = 2 + int(rand() * (h * 0.12))
-            off = round((rand() - 0.5) * w * 0.5 * k)
+            off = jround((rand() - 0.5) * w * 0.5 * k)
             src_y1 = max(0, sy)
             src_y2 = min(H_img, sy + sh_s)
             if src_y1 >= src_y2:
                 continue
-            sc = max(0, -off)
             dst_x = x + off
+            sc = max(0, -dst_x)          # = max(0, -(x + off)); clamp of dst start
             dc = max(0, dst_x)
             de = min(W_img, dst_x + w)
             cw = de - dc
