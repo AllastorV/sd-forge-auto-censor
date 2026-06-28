@@ -148,8 +148,14 @@ def box_to_rect(box: dict, W: int, H: int, padding: float, shape: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def blur_radius(w: int, h: int, strength: float) -> int:
-    """Blur sigma in pixels: max(2, jround(longest/100 * strength/100 * 28))."""
-    return max(2, jround((max(w, h) / 100) * (strength / 100) * 28))
+    """Blur sigma in pixels: max(1, jround(longest/100 * strength/100 * 14)).
+
+    The TS source fed this number to a CSS `filter: blur(Npx)` *radius*; we feed
+    it to cv2.GaussianBlur as sigmaX, which is ~2x stronger. Halving (28→14)
+    restores the intended look AND makes the strength slider visibly responsive
+    instead of saturating to a full blur even at low values.
+    """
+    return max(1, jround((max(w, h) / 100) * (strength / 100) * 14))
 
 # ---------------------------------------------------------------------------
 # Helpers

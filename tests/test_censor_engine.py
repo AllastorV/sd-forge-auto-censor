@@ -33,7 +33,7 @@ def test_merge_rects_keeps_far_apart():
 
 
 def test_blur_radius_formula():
-    assert ce.blur_radius(1000, 500, 70) == max(2, round((1000/100)*(70/100)*28))
+    assert ce.blur_radius(1000, 500, 70) == max(1, ce.jround((1000 / 100) * (70 / 100) * 14))
 
 
 def test_bar_style_changes_only_region():

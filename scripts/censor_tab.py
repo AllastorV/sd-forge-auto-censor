@@ -71,7 +71,10 @@ def _mask_of(editor, w, h):
         acc = a if acc is None else np.maximum(acc, a)
     if acc is None or acc.max() == 0:
         return None
-    m = (acc > 10).astype(np.uint8) * 255
+    painted = acc > 10
+    if painted.mean() > 0.98:          # phantom full-canvas layer, not a real brush mask
+        return None
+    m = painted.astype(np.uint8) * 255
     return Image.fromarray(m, "L").resize((w, h), Image.Resampling.NEAREST)
 
 
@@ -164,11 +167,10 @@ def on_ui_tabs():
         boxes_state = gr.State([])
         # Shrink the tab ~5% (Chromium zoom) and let the image panels be drag-resized
         # (grab the bottom-right corner of any of the three image boxes).
-        gr.HTML("<style>"
-                "#auto_censor_tab{zoom:0.95;}"
-                "#auto_censor_tab .ac-img{width:320px;margin-left:auto;margin-right:auto;"
-                "resize:both;overflow:auto;min-height:140px;}"
-                "</style>")
+        # Only a gentle 5% shrink — no width/overflow clipping (it was cutting off
+        # the ImageEditor's layer/brush toolbar). Zoom & pan are native: the editor
+        # toolbar has a zoom control, and each result image has a fullscreen button.
+        gr.HTML("<style>#auto_censor_tab{zoom:0.95;}</style>")
         # --- Top: three equal-sized image panels -------------------------------
         with gr.Row(equal_height=True):
             with gr.Column():
