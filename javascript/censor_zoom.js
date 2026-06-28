@@ -94,7 +94,7 @@
       b.textContent = "⛶";
       b.title = "Fit / center this image (reset zoom)";
       b.style.cssText =
-        "position:absolute;top:6px;left:6px;z-index:40;width:24px;height:24px;padding:0;" +
+        "position:absolute;bottom:6px;right:6px;z-index:40;width:24px;height:24px;padding:0;" +
         "border:none;border-radius:5px;background:rgba(0,0,0,.55);color:#fff;font-size:15px;" +
         "line-height:24px;text-align:center;cursor:pointer;";
       b.addEventListener("click", function (e) {
