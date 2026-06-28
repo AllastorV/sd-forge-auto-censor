@@ -186,9 +186,10 @@ def on_ui_tabs():
                 # .change copies the image into the ImageEditor background.
                 paste_target = gr.Image(visible=False, elem_id="auto_censor_paste", type="pil")
             with gr.Column():
-                preview = gr.Image(label="2 · Detected regions", interactive=False)
+                preview = gr.Image(label="2 · Detected regions", interactive=False,
+                                   elem_id="ac_preview")
             with gr.Column():
-                out = gr.Image(label="3 · Result", interactive=False)
+                out = gr.Image(label="3 · Result", interactive=False, elem_id="ac_result")
                 download = gr.File(label="Download", file_count="multiple")
 
         # --- Prominent step buttons (Detect is easy to miss otherwise) ----------

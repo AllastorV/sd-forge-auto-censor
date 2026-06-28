@@ -7,15 +7,15 @@
 //   double-click : reset
 (function () {
   "use strict";
-  const TAB = "auto_censor_tab";
-  const EDITOR = "auto_censor_input";   // exclude the paint editor
   const MAX = 8;
 
+  // Scope to the two display panels by their stable elem_ids (the tab-id selector
+  // was unreliable). Find the <img> inside whichever panel the cursor is over.
   function targetImg(node) {
     if (!node || !node.closest) return null;
-    if (!node.closest("#" + TAB)) return null;
-    if (node.closest("#" + EDITOR)) return null;
-    return node.closest("img");
+    const host = node.closest("#ac_preview, #ac_result");
+    if (!host) return null;
+    return host.querySelector("img");
   }
 
   function state(img) {
