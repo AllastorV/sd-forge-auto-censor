@@ -160,6 +160,8 @@ def _censor(editor, boxes, checked, mode, style, shape, mosaic_blocks, blur_stre
 def on_ui_tabs():
     with gr.Blocks(analytics_enabled=False) as tab:
         boxes_state = gr.State([])
+        # Shrink the whole Censor tab ~5% (Chromium zoom; Forge runs in Chrome/Edge).
+        gr.HTML("<style>#auto_censor_tab{zoom:0.95;}</style>")
         gr.Markdown("### 🔞 Auto-Censor &nbsp;·&nbsp; **1** load / paint an image &nbsp;→&nbsp; "
                     "**2** press DETECT &nbsp;→&nbsp; **3** pick regions & style &nbsp;→&nbsp; **4** press CENSOR")
         # --- Top: three equal-sized image panels -------------------------------
@@ -182,8 +184,8 @@ def on_ui_tabs():
 
         # --- Prominent step buttons (Detect is easy to miss otherwise) ----------
         with gr.Row():
-            detect_btn = gr.Button("🔍  STEP 1 — DETECT", variant="primary", size="lg")
-            censor_btn = gr.Button("✨  STEP 2 — CENSOR", variant="primary", size="lg")
+            detect_btn = gr.Button("🔍  Detect", variant="primary", size="lg")
+            censor_btn = gr.Button("🩹  Apply Censor", variant="primary", size="lg")
 
         # --- All settings in one compact band (3 columns, no page scroll) -------
         with gr.Row():
