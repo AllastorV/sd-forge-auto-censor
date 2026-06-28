@@ -28,6 +28,9 @@
   function st(el) { if (!el._acz) el._acz = { s: 1, x: 0, y: 0 }; return el._acz; }
   function draw(el, z) {
     if (el.parentElement) el.parentElement.style.overflow = "hidden";
+    // The stage/canvas wrapper has a 5px border-radius; while zoomed its rounded
+    // clip shows as a stray frame over the image, so flatten it during zoom.
+    el.style.borderRadius = z.s > 1 ? "0" : "";
     el.style.transformOrigin = "0 0";
     el.style.transform = "translate(" + z.x + "px," + z.y + "px) scale(" + z.s + ")";
     el.style.willChange = "transform";
@@ -35,7 +38,7 @@
   function reset(el) {
     if (!el) return;
     const z = st(el); z.s = 1; z.x = 0; z.y = 0;
-    el.style.transform = ""; el.style.cursor = "";
+    el.style.transform = ""; el.style.borderRadius = ""; el.style.cursor = "";
   }
 
   document.addEventListener("wheel", function (e) {
