@@ -554,7 +554,7 @@ def apply_auto_censor(pil, boxes: list, opts: dict, manual_mask=None):
 
         # --- brush-mask compositing ---
         if manual_mask is not None:
-            mask_pil = manual_mask.resize((W, H), _PILImage.NEAREST)
+            mask_pil = manual_mask.convert("L").resize((W, H), _PILImage.NEAREST)
             mask_arr = np.asarray(mask_pil)
             styled = style_whole(canvas, opts, rand)
             m = mask_arr > 127
@@ -577,7 +577,7 @@ _EXPORT_PRESETS = {
     "pixiv":   ("mosaic", 100, 4, "png",  72, False, True),
     "bar":     ("bar",    100, 4, "png",  72, False, True),
     "master":  ("mosaic", 100, 4, "png",  72, True,  False),
-    "both":    ("mosaic", 100, 4, "png",  72, True,  True),
+    "both":    ("mosaic", 100, 4, "jpg", 300, True,  True),
 }
 
 
@@ -610,13 +610,13 @@ def export_preset(pil, boxes: list, preset: str, manual_mask=None) -> list:
         }
         return apply_auto_censor(pil, boxes, censor_opts, manual_mask)
 
-    # "Both" → master PNG/72 + censored PNG/72 (task spec overrides preset fmt/dpi)
+    # "Both" → master PNG/72 + censored JPG/300 (DLsite tile rule: divisor 100, minTile 4)
     if key == "both":
         master_img = pil.convert("RGB")
         censored_img = _make_censored("mosaic", 100, 4)
         return [
             ("master", master_img, "png", 72),
-            ("censored", censored_img, "png", 72),
+            ("censored", censored_img, "jpg", 300),
         ]
 
     results = []
