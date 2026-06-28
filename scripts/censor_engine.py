@@ -359,3 +359,269 @@ def style_region(
 
         temp_u8 = np.clip(temp, 0, 255).astype(np.uint8)
         _composite(img, temp_u8, mask)
+
+# ---------------------------------------------------------------------------
+# _glitch_whole — TS glitchCanvas L196-212
+# ---------------------------------------------------------------------------
+
+def _glitch_whole(img_rgb: np.ndarray, intensity: float, rand, gray: bool = False) -> np.ndarray:
+    """Whole-image grayscale + horizontal band tear glitch.
+
+    Port of glitchCanvas(ctx, src, W, H, intensity, rand, gray=false).
+    Each band is a horizontal slice shifted by `shift` pixels (wrap-around),
+    implemented as np.roll which matches the TS ((x-shift)%W+W)%W formula.
+    """
+    H, W = img_rgb.shape[:2]
+    out = img_rgb.copy()
+
+    if gray:
+        luma = (
+            out[:, :, 0].astype(np.float32) * 0.299 +
+            out[:, :, 1].astype(np.float32) * 0.587 +
+            out[:, :, 2].astype(np.float32) * 0.114
+        ).astype(np.uint8)
+        out[:, :, 0] = luma
+        out[:, :, 1] = luma
+        out[:, :, 2] = luma
+
+    src = out.copy()
+    k = max(0.1, intensity / 100)
+    bands = jround((10 + rand() * 26) * k)
+
+    for _ in range(int(bands)):
+        y0 = int(rand() * H)
+        bh = 1 + int(rand() * 26 * k)
+        shift = jround((rand() - 0.5) * W * 0.4 * k)
+        y1 = min(H, y0 + bh)
+        if y0 >= y1:
+            continue
+        # np.roll(arr, shift, axis=1): output[y,x] = input[y, (x-shift)%W]
+        # matches TS: sx = ((x - shift) % W + W) % W; out[y,x] = src[y, sx]
+        out[y0:y1] = np.roll(src[y0:y1], shift, axis=1)
+
+    return out
+
+
+# ---------------------------------------------------------------------------
+# style_whole — TS styleWhole L127-149
+# ---------------------------------------------------------------------------
+
+def style_whole(img_rgb: np.ndarray, opts: dict, rand) -> np.ndarray:
+    """Apply style across the whole image. Returns a new numpy array.
+
+    Mosaic block size: max(3, jround(max(W,H) / (mosaicBlocks * 3.2))).
+    Used for the brush-mask compositing path.
+    """
+    H, W = img_rgb.shape[:2]
+    style = opts.get("style", "mosaic")
+
+    if style == "bar":
+        out = np.empty_like(img_rgb)
+        out[:] = parse_color(opts.get("barColor", "#0a0a0a"))
+        return out
+
+    elif style in ("barsV", "barsH", "manga"):
+        out = img_rgb.copy()
+        rect = {"x": 0, "y": 0, "w": W, "h": H, "ellipse": False}
+        style_region(out, img_rgb, rect, opts, rand)
+        return out
+
+    elif style == "mosaic":
+        block = max(3, jround(max(W, H) / (opts.get("mosaicBlocks", 10) * 3.2)))
+        sw = max(2, jround(W / block))
+        sh = max(2, jround(H / block))
+        small = cv2.resize(img_rgb, (sw, sh), interpolation=cv2.INTER_AREA)
+        big = cv2.resize(small, (W, H), interpolation=cv2.INTER_NEAREST)
+        return big
+
+    elif style == "blur":
+        sigma = blur_radius(W, H, opts.get("blurStrength", 70))
+        return cv2.GaussianBlur(img_rgb, (0, 0), sigmaX=sigma)
+
+    else:  # glitch
+        return _glitch_whole(img_rgb, opts.get("glitchIntensity", 70), rand)
+
+
+# ---------------------------------------------------------------------------
+# draw_frames — TS drawFrames L218-233
+# ---------------------------------------------------------------------------
+
+def draw_frames(img_rgb: np.ndarray, boxes: list, opts: dict) -> None:
+    """Draw detection box outlines and optional labels onto img_rgb in-place.
+
+    Sensitive boxes: #ff3b3b (255, 59, 59). Other: #39d353 (57, 211, 83).
+    Label format: "LABEL  NN%" (double space before percent).
+    """
+    H, W = img_rgb.shape[:2]
+    lw = max(2, jround(min(W, H) / 320))
+    fs = max(11, jround(min(W, H) / 55))
+
+    for b in boxes:
+        x = int(b["x1"] * W)
+        y = int(b["y1"] * H)
+        bw = int((b["x2"] - b["x1"]) * W)
+        bh = int((b["y2"] - b["y1"]) * H)
+        col_rgb = (255, 59, 59) if b.get("sensitive", False) else (57, 211, 83)
+        cv2.rectangle(img_rgb, (x, y), (x + bw, y + bh), col_rgb, lw)
+        if opts.get("frameLabels", True):
+            label = f"{b['label']}  {jround(b['score'] * 100)}%"
+            font = cv2.FONT_HERSHEY_PLAIN
+            font_scale = max(0.5, fs / 18.0)
+            thickness = max(1, lw // 2)
+            (tw, th), _ = cv2.getTextSize(label, font, font_scale, thickness)
+            bg_x1, bg_y1 = x, max(0, y - th - 4)
+            bg_x2, bg_y2 = x + tw + 8, y
+            cv2.rectangle(img_rgb, (bg_x1, bg_y1), (bg_x2, bg_y2), col_rgb, -1)
+            text_y = max(th, y - 2)
+            cv2.putText(img_rgb, label, (x + 4, text_y), font, font_scale,
+                        (0, 0, 0), thickness)
+
+
+# ---------------------------------------------------------------------------
+# apply_auto_censor — TS applyAutoCensor L243-287
+# ---------------------------------------------------------------------------
+
+def apply_auto_censor(pil, boxes: list, opts: dict, manual_mask=None):
+    """Orchestrate censoring on a PIL image. Returns PIL.Image.
+
+    Modes
+    -----
+    stylize  — apply bg effect to whole image, reveal original inside each box.
+    censor   — (default) obscure each box region; also apply brush mask if given.
+
+    manual_mask : PIL.Image "L" mode mask — pixels > 127 are styled via
+                  style_whole() (whole-image style composited where painted).
+    Empty boxes AND no manual_mask → returns original unchanged.
+    """
+    from PIL import Image as _PILImage
+
+    img_rgb = np.asarray(pil.convert("RGB")).copy()
+    H, W = img_rgb.shape[:2]
+
+    # Fast path: nothing to do
+    if not boxes and manual_mask is None:
+        return _PILImage.fromarray(img_rgb)
+
+    rand = lcg(opts.get("glitchSeed", 7))
+    mode = opts.get("mode", "censor")
+
+    if mode == "stylize":
+        orig = img_rgb.copy()
+        bg_effect = opts.get("bgEffect", "glitch")
+        bg_intensity = opts.get("bgIntensity", 70)
+
+        if bg_effect == "grayscale":
+            luma = (
+                img_rgb[:, :, 0].astype(np.float32) * 0.299 +
+                img_rgb[:, :, 1].astype(np.float32) * 0.587 +
+                img_rgb[:, :, 2].astype(np.float32) * 0.114
+            ).astype(np.uint8)
+            img_rgb[:, :, 0] = luma
+            img_rgb[:, :, 1] = luma
+            img_rgb[:, :, 2] = luma
+        elif bg_effect == "glitch":
+            img_rgb[:] = _glitch_whole(orig, bg_intensity, rand, gray=True)
+        elif bg_effect == "blur":
+            sigma = blur_radius(W, H, bg_intensity)
+            img_rgb[:] = cv2.GaussianBlur(orig, (0, 0), sigmaX=sigma)
+
+        # Reveal original (coloured) pixels inside each box rect (no padding)
+        for b in boxes:
+            bx = max(0, jround(b["x1"] * W))
+            by = max(0, jround(b["y1"] * H))
+            bw = min(W - bx, jround((b["x2"] - b["x1"]) * W))
+            bh = min(H - by, jround((b["y2"] - b["y1"]) * H))
+            if bw < 2 or bh < 2:
+                continue
+            img_rgb[by:by + bh, bx:bx + bw] = orig[by:by + bh, bx:bx + bw]
+
+    else:
+        # Censor mode (default)
+        canvas = img_rgb.copy()  # pristine source for all sampling
+
+        # --- region censor for detected boxes ---
+        if boxes:
+            gap = jround(opts.get("mergeGap", 30) * max(1, min(W, H) / 1000))
+            shape = opts.get("shape", "auto")
+            rects = [
+                box_to_rect(b, W, H, opts.get("padding", 0.08), shape)
+                for b in boxes
+            ]
+            if shape != "ellipse":
+                rects = merge_rects(rects, gap)
+            for r in rects:
+                style_region(img_rgb, canvas, r, opts, rand)
+
+        # --- brush-mask compositing ---
+        if manual_mask is not None:
+            mask_pil = manual_mask.resize((W, H), _PILImage.NEAREST)
+            mask_arr = np.asarray(mask_pil)
+            styled = style_whole(canvas, opts, rand)
+            m = mask_arr > 127
+            img_rgb[m] = styled[m]
+
+    if opts.get("boxFrames", False):
+        draw_frames(img_rgb, boxes, opts)
+
+    return _PILImage.fromarray(img_rgb)
+
+
+# ---------------------------------------------------------------------------
+# export_preset — CensorExportModal.tsx L33-40
+# ---------------------------------------------------------------------------
+
+_EXPORT_PRESETS = {
+    # key → (style, divisor, minTile, fmt, dpi, master, censored)
+    "dlsite":  ("mosaic", 100, 4, "jpg", 300, False, True),
+    "fanza":   ("mosaic",  58, 4, "jpg", 300, False, True),
+    "pixiv":   ("mosaic", 100, 4, "png",  72, False, True),
+    "bar":     ("bar",    100, 4, "png",  72, False, True),
+    "master":  ("mosaic", 100, 4, "png",  72, True,  False),
+    "both":    ("mosaic", 100, 4, "png",  72, True,  True),
+}
+
+
+def export_preset(pil, boxes: list, preset: str, manual_mask=None) -> list:
+    """Return list of (name, PIL.Image, fmt, dpi) for the given preset key.
+
+    Preset keys (case-insensitive): DLsite, FANZA, Pixiv, Bar, Master, Both.
+    Mosaic tile rule: tileSize = max(minTile, jround(longSide / divisor)).
+    Names contain 'master' for uncensored output, 'censored' for censored.
+    """
+    from PIL import Image as _PILImage
+
+    W, H = pil.size
+    long_side = max(W, H)
+
+    key = preset.lower()
+    if key not in _EXPORT_PRESETS:
+        return []
+
+    style, divisor, min_tile, fmt, dpi, do_master, do_censored = _EXPORT_PRESETS[key]
+
+    def _make_censored(censor_style: str, div: int, mt: int) -> "_PILImage.Image":
+        tile_size = max(mt, jround(long_side / div))
+        # mosaicBlocks: number of tiles across the longest dimension
+        mosaic_blocks = max(3, jround(long_side / tile_size))
+        censor_opts = {
+            **AUTO_CENSOR_DEFAULTS,
+            "style": censor_style,
+            "mosaicBlocks": mosaic_blocks,
+        }
+        return apply_auto_censor(pil, boxes, censor_opts, manual_mask)
+
+    # "Both" → master PNG/72 + censored PNG/72 (task spec overrides preset fmt/dpi)
+    if key == "both":
+        master_img = pil.convert("RGB")
+        censored_img = _make_censored("mosaic", 100, 4)
+        return [
+            ("master", master_img, "png", 72),
+            ("censored", censored_img, "png", 72),
+        ]
+
+    results = []
+    if do_master:
+        results.append(("master", pil.convert("RGB"), fmt, dpi))
+    if do_censored:
+        results.append(("censored", _make_censored(style, divisor, min_tile), fmt, dpi))
+    return results

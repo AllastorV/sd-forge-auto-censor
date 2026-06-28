@@ -99,6 +99,46 @@ def test_lcg_golden_values():
         assert abs(a - b) < 1e-4, (seq, expected)
 
 
+from PIL import Image
+
+
+def test_apply_censor_obscures_box_region():
+    img = Image.new("RGB", (200, 200), (180, 180, 180))
+    box = {"x1": 0.25, "y1": 0.25, "x2": 0.5, "y2": 0.5, "score": 0.9,
+           "class_id": 3, "label": "FEMALE_BREAST_EXPOSED", "sensitive": True,
+           "exposed": True, "ellipse": False, "bodyPart": None, "derived": False}
+    opts = {**ce.AUTO_CENSOR_DEFAULTS, "style": "bar", "barColor": "#000000", "shape": "rect", "padding": 0.0}
+    out = np.asarray(ce.apply_auto_censor(img, [box], opts))
+    assert out[80, 70].tolist() == [0, 0, 0]
+    assert out[10, 10].tolist() == [180, 180, 180]
+
+
+def test_apply_censor_brush_mask():
+    img = Image.new("RGB", (100, 100), (200, 200, 200))
+    mask = np.zeros((100, 100), dtype=np.uint8)
+    mask[40:60, 40:60] = 255
+    opts = {**ce.AUTO_CENSOR_DEFAULTS, "style": "bar", "barColor": "#000000"}
+    out = np.asarray(ce.apply_auto_censor(img, [], opts, manual_mask=Image.fromarray(mask, "L")))
+    assert out[50, 50].tolist() == [0, 0, 0]
+    assert out[5, 5].tolist() == [200, 200, 200]
+
+
+def test_apply_no_targets_returns_unchanged():
+    img = Image.new("RGB", (64, 64), (123, 45, 67))
+    out = np.asarray(ce.apply_auto_censor(img, [], ce.AUTO_CENSOR_DEFAULTS))
+    assert np.array_equal(out, np.asarray(img))
+
+
+def test_export_preset_returns_named_outputs():
+    img = Image.new("RGB", (256, 256), (180, 180, 180))
+    box = {"x1": 0.3, "y1": 0.3, "x2": 0.6, "y2": 0.6, "score": 0.9, "class_id": 3,
+           "label": "FEMALE_BREAST_EXPOSED", "sensitive": True, "exposed": True,
+           "ellipse": False, "bodyPart": None, "derived": False}
+    outs = ce.export_preset(img, [box], "Both")
+    names = [o[0] for o in outs]
+    assert any("master" in n.lower() for n in names) and any("censor" in n.lower() for n in names)
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:
