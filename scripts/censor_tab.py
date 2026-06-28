@@ -53,7 +53,7 @@ def _mask_of(editor, w, h):
     if acc is None or acc.max() == 0:
         return None
     m = (acc > 10).astype(np.uint8) * 255
-    return Image.fromarray(m, "L").resize((w, h), Image.NEAREST)
+    return Image.fromarray(m, "L").resize((w, h), Image.Resampling.NEAREST)
 
 
 def _draw_preview(pil, boxes):
@@ -100,13 +100,13 @@ def _quick(boxes, mode):
 
 def _censor(editor, boxes, checked, mode, style, shape, mosaic_blocks, blur_strength,
             glitch_intensity, glitch_seed, bar_count, bar_color, padding, merge_gap,
-            bg_effect, bg_intensity, box_frames, frame_labels, preset):
+            bg_effect, bg_intensity, box_frames, frame_labels, preset, conf):
     bg = _bg_of(editor)
     if ce is None or bg is None:
         return None, None, "Load an image first."
     boxes = boxes or []
     if not boxes and nd is not None:
-        boxes = nd.detect(bg)
+        boxes = nd.detect(bg, float(conf))
     checkset = set(checked or [])
     sel = [b for b in boxes if _label_str(b) in checkset] if checkset else []
     mask = _mask_of(editor, *bg.size)
@@ -158,7 +158,7 @@ def on_ui_tabs():
                 out = gr.Image(label="Result", interactive=False)
                 with gr.Row():
                     censor_btn = gr.Button("✨ CENSOR", variant="primary")
-                    download = gr.File(label="Download")
+                    download = gr.File(label="Download", file_count="multiple")
                 mode = gr.Radio(["Censor", "Stylize"], value="Censor", label="Mode")
                 with gr.Row():
                     style = gr.Dropdown(STYLES, value="mosaic", label="Style")
@@ -188,7 +188,7 @@ def on_ui_tabs():
             _censor,
             [inp, boxes_state, classes, mode, style, shape, mosaic_blocks, blur_strength,
              glitch_intensity, glitch_seed, bar_count, bar_color, padding, merge_gap,
-             bg_effect, bg_intensity, box_frames, frame_labels, preset],
+             bg_effect, bg_intensity, box_frames, frame_labels, preset, conf],
             [out, download, status],
         )
     return [(tab, "\U0001f51e Censor", "auto_censor_tab")]
