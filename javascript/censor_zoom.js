@@ -48,7 +48,8 @@
     z.y = cy - iy * ns;
     if (z.s <= 1.001) { z.s = 1; z.x = 0; z.y = 0; }
     draw(img, z);
-  }, { passive: false });
+    // capture phase: LobeTheme/Gradio swallow wheel during bubbling, so run first.
+  }, { passive: false, capture: true });
 
   let drag = null;
   document.addEventListener("mousedown", function (e) {
@@ -90,7 +91,19 @@
       img.style.cursor = "";
     });
   }
-  document.addEventListener("click", function (e) {
-    if (e.target && e.target.closest && e.target.closest("#ac_reset_zoom")) resetAll();
-  });
+  // Inject a compact ⊙ "fit/center" button into the editor's top toolbar, next to Undo.
+  function injectFitButton() {
+    const undo = document.querySelector("#auto_censor_input button[aria-label='Undo']");
+    if (!undo || !undo.parentElement) return;
+    if (document.querySelector("#ac_fit_btn")) return;
+    const b = document.createElement("button");
+    b.id = "ac_fit_btn";
+    b.className = undo.className;       // match the toolbar button style
+    b.title = "Fit / center the Detected & Result images (reset zoom)";
+    b.textContent = "⊙";
+    b.addEventListener("click", function (e) { e.preventDefault(); resetAll(); });
+    undo.parentElement.insertBefore(b, undo);
+  }
+  if (typeof onUiLoaded === "function") onUiLoaded(injectFitButton);
+  if (typeof onUiUpdate === "function") onUiUpdate(injectFitButton);
 })();

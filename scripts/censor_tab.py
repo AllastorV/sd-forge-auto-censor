@@ -180,7 +180,8 @@ def on_ui_tabs():
                 inp = gr.ImageEditor(
                     label="1 · Image  (paint = extra censor mask)", type="pil",
                     sources=["upload", "clipboard"],
-                    brush=gr.Brush(colors=["rgba(255,45,45,0.85)"], default_size=40),
+                    brush=gr.Brush(default_size=40, color_mode="defaults",
+                                   colors=["#ff2d2d", "#39d353", "#3d7bff", "#ffffff", "#000000"]),
                     eraser=gr.Eraser(), elem_id="auto_censor_input")
                 # Hidden paste target for the cross-tab "Send to Censor" buttons; its
                 # .change copies the image into the ImageEditor background.
@@ -191,10 +192,6 @@ def on_ui_tabs():
             with gr.Column():
                 out = gr.Image(label="3 · Result", interactive=False, elem_id="ac_result")
                 download = gr.File(label="Download", file_count="multiple")
-
-        # Reset zoom/pan of the Detected & Result panels back to a centred fit.
-        with gr.Row():
-            gr.Button("⊙ Fit / center view", elem_id="ac_reset_zoom", size="sm")
 
         # --- Prominent step buttons (Detect is easy to miss otherwise) ----------
         with gr.Row():
