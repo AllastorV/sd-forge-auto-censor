@@ -40,6 +40,7 @@ AUTO_CENSOR_DEFAULTS: dict = {
     "glitchIntensity": 70,
     "glitchSeed": 7,
     "barCount": 9,
+    "barThickness": 0.55,
     "padding": 0.08,
     "mergeGap": 30,
     "bgEffect": "glitch",
@@ -247,13 +248,15 @@ def style_region(
     elif style in ("barsV", "barsH", "manga"):
         color = np.array(parse_color(opts.get("barColor", "#0a0a0a")), dtype=np.uint8)
         count = max(2, jround(opts.get("barCount", 9)))
+        # Bar size along the period axis (width for barsV, height for barsH/manga).
+        thickness = min(1.0, max(0.05, float(opts.get("barThickness", 0.55))))
         # Start from the canvas so image peeks through gaps
         temp = canvas.copy()
 
         if style == "barsV":
             # Vertical bars: period along x, bar=55% of period, full height
             period = w / count
-            bw_bar = period * 0.55
+            bw_bar = period * thickness
             for i in range(count):
                 x0 = jround(x + i * period + (period - bw_bar) / 2)
                 x1 = jround(x0 + bw_bar)
@@ -265,7 +268,7 @@ def style_region(
         elif style == "barsH":
             # Horizontal bars: period along y, bar=55% of period, full width
             period = h / count
-            bh_bar = period * 0.55
+            bh_bar = period * thickness
             for i in range(count):
                 y0 = jround(y + i * period + (period - bh_bar) / 2)
                 y1 = jround(y0 + bh_bar)
@@ -277,7 +280,7 @@ def style_region(
         else:  # manga
             # Horizontal bars + gap slivers displaced ±12% sideways
             period = h / count
-            bh_bar = period * 0.55
+            bh_bar = period * thickness
             for i in range(count):
                 y0 = y + i * period
                 gap_y = y0 + bh_bar

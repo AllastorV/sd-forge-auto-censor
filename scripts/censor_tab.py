@@ -118,7 +118,7 @@ def _quick(boxes, mode):
 
 
 def _censor(editor, boxes, checked, mode, style, shape, mosaic_blocks, blur_strength,
-            glitch_intensity, glitch_seed, bar_count, bar_color, padding, merge_gap,
+            glitch_intensity, glitch_seed, bar_count, bar_thickness, bar_color, padding, merge_gap,
             bg_effect, bg_intensity, box_frames, frame_labels, preset, conf):
     bg = _bg_of(editor)
     if ce is None or bg is None:
@@ -133,7 +133,8 @@ def _censor(editor, boxes, checked, mode, style, shape, mosaic_blocks, blur_stre
         "mode": mode.lower(), "style": style, "shape": shape, "barColor": bar_color,
         "mosaicBlocks": int(mosaic_blocks), "blurStrength": int(blur_strength),
         "glitchIntensity": int(glitch_intensity), "glitchSeed": int(glitch_seed),
-        "barCount": int(bar_count), "padding": float(padding), "mergeGap": int(merge_gap),
+        "barCount": int(bar_count), "barThickness": float(bar_thickness),
+        "padding": float(padding), "mergeGap": int(merge_gap),
         "bgEffect": bg_effect, "bgIntensity": int(bg_intensity),
         "boxFrames": bool(box_frames), "frameLabels": bool(frame_labels),
     }
@@ -224,7 +225,9 @@ def on_ui_tabs():
                     blur_strength = gr.Slider(10, 100, value=70, step=1, label="Blur strength",
                                               info="Higher = blurrier.")
                     bar_count = gr.Slider(2, 24, value=9, step=1, label="Bar / stripe count",
-                                          info="Used by the bar / stripes / manga styles.")
+                                          info="How many bars / stripes (bar / stripes / manga styles).")
+                    bar_thickness = gr.Slider(0.1, 1.0, value=0.55, step=0.05, label="Bar thickness",
+                                              info="Bar width (vertical) / height (horizontal & manga) as a fraction of the gap. 1.0 = solid.")
                     glitch_intensity = gr.Slider(10, 100, value=70, step=1, label="Glitch intensity")
                 with gr.Accordion("More options", open=False):
                     padding = gr.Slider(0.0, 0.5, value=0.08, step=0.01, label="Region padding",
@@ -247,7 +250,7 @@ def on_ui_tabs():
         censor_btn.click(
             _censor,
             [inp, boxes_state, classes, mode, style, shape, mosaic_blocks, blur_strength,
-             glitch_intensity, glitch_seed, bar_count, bar_color, padding, merge_gap,
+             glitch_intensity, glitch_seed, bar_count, bar_thickness, bar_color, padding, merge_gap,
              bg_effect, bg_intensity, box_frames, frame_labels, preset, conf],
             [out, download, status],
         )
