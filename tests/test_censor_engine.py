@@ -69,17 +69,26 @@ def test_all_styles_region_locality():
         assert not np.array_equal(img[mask == 255], base[mask == 255]), f"{style} did not change region"
 
 
-def test_glitch_renders_left_ghost():
-    # solid region on a black field; the -sx additive ghost must brighten pixels
-    # just LEFT of the region (proving the left draw is not dropped).
+def test_glitch_additive_ghosts_symmetric():
+    # Bright vertical line at the region's center. The additive +-sx ghosts span the
+    # FULL region height, so col (center-sx) is brightened by the -sx ghost (the bug
+    # dropped this) and (center+sx) by the +sx ghost. Averaging over rows washes out
+    # the random slices. If the -sx draw is dropped, left_bright collapses toward 0.
     img = np.zeros((100, 100, 3), dtype=np.uint8)
-    img[40:60, 45:75] = 200          # bright region offset to the right
+    img[30:70, 49:51] = 255                    # vertical line at col ~50, region height
     canvas = img.copy()
-    rect = {"x": 45, "y": 40, "w": 30, "h": 20, "ellipse": False}
-    ce.style_region(img, canvas, rect, {**ce.AUTO_CENSOR_DEFAULTS, "style": "glitch", "glitchIntensity": 100}, ce.lcg(7))
-    # inside the region, left columns should show additive brightening from the -sx ghost
-    assert int(img[50, 46]) if img.ndim == 2 else True
-    assert img[50, 46].max() >= 200  # region still bright (additive, not dropped)
+    rect = {"x": 20, "y": 30, "w": 60, "h": 40, "ellipse": False}  # sx = jround(60*0.06)+1 = 5
+    out = img.copy()
+    ce.style_region(out, canvas, rect,
+                    {**ce.AUTO_CENSOR_DEFAULTS, "style": "glitch", "glitchIntensity": 100}, ce.lcg(7))
+    rows = slice(30, 70)
+    left_bright = float((out[rows, 45].max(axis=-1) > 50).mean())   # center-sx, only the -sx ghost
+    right_bright = float((out[rows, 55].max(axis=-1) > 50).mean())  # center+sx, the +sx ghost
+    # Both ghosts must render (not dropped) and be roughly symmetric. If the -sx
+    # draw is dropped, left_bright collapses toward 0 while right stays high.
+    assert left_bright > 0.2, f"left (-sx) ghost missing: {left_bright}"
+    assert right_bright > 0.2, f"right (+sx) ghost missing: {right_bright}"
+    assert abs(left_bright - right_bright) < 0.25, f"asymmetric ghosts (a side dropped): {left_bright} vs {right_bright}"
 
 
 def test_lcg_golden_values():
