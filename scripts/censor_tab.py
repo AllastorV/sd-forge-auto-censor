@@ -160,10 +160,12 @@ def _censor(editor, boxes, checked, mode, style, shape, mosaic_blocks, blur_stre
 def on_ui_tabs():
     with gr.Blocks(analytics_enabled=False) as tab:
         boxes_state = gr.State([])
-        # Shrink the whole Censor tab ~5% (Chromium zoom; Forge runs in Chrome/Edge).
-        gr.HTML("<style>#auto_censor_tab{zoom:0.95;}</style>")
-        gr.Markdown("### 🔞 Auto-Censor &nbsp;·&nbsp; **1** load / paint an image &nbsp;→&nbsp; "
-                    "**2** press DETECT &nbsp;→&nbsp; **3** pick regions & style &nbsp;→&nbsp; **4** press CENSOR")
+        # Shrink the tab ~5% (Chromium zoom) and let the image panels be drag-resized
+        # (grab the bottom-right corner of any of the three image boxes).
+        gr.HTML("<style>"
+                "#auto_censor_tab{zoom:0.95;}"
+                "#auto_censor_tab .ac-img{resize:both;overflow:auto;min-height:140px;}"
+                "</style>")
         # --- Top: three equal-sized image panels -------------------------------
         with gr.Row(equal_height=True):
             with gr.Column():
@@ -172,14 +174,17 @@ def on_ui_tabs():
                     sources=["upload", "clipboard"],
                     # 0.85 alpha so the painted mask is semi-transparent (see through it).
                     brush=gr.Brush(colors=["rgba(255,45,45,0.85)"], default_size=40),
-                    eraser=gr.Eraser(), elem_id="auto_censor_input", height=340)
+                    eraser=gr.Eraser(), elem_id="auto_censor_input", height=340,
+                    elem_classes=["ac-img"])
                 # Hidden paste target for the cross-tab "Send to Censor" buttons; its
                 # .change copies the image into the ImageEditor background.
                 paste_target = gr.Image(visible=False, elem_id="auto_censor_paste", type="pil")
             with gr.Column():
-                preview = gr.Image(label="2 · Detected regions", interactive=False, height=340)
+                preview = gr.Image(label="2 · Detected regions", interactive=False,
+                                   height=340, elem_classes=["ac-img"])
             with gr.Column():
-                out = gr.Image(label="3 · Result", interactive=False, height=340)
+                out = gr.Image(label="3 · Result", interactive=False,
+                               height=340, elem_classes=["ac-img"])
                 download = gr.File(label="Download", file_count="multiple")
 
         # --- Prominent step buttons (Detect is easy to miss otherwise) ----------
