@@ -199,6 +199,25 @@ def test_frosted_is_blurred_and_lighter():
     assert inside_after.mean() > inside_before.mean(), "frosted should lighten (white veil)"
 
 
+def test_static_changes_region_and_is_deterministic():
+    base = np.full((120, 120, 3), 128, dtype=np.uint8)
+    rect = {"x": 30, "y": 30, "w": 50, "h": 50, "ellipse": False}
+    mask = ce.shape_mask(rect, 120, 120)
+
+    def run(seed):
+        img = base.copy()
+        ce.style_region(img, base.copy(), rect,
+                        {**ce.AUTO_CENSOR_DEFAULTS, "style": "static",
+                         "staticIntensity": 100, "glitchSeed": seed}, ce.lcg(7))
+        return img
+
+    a, a2, b = run(7), run(7), run(9)
+    assert np.array_equal(a[mask == 0], base[mask == 0]), "static touched outside region"
+    assert not np.array_equal(a[mask == 255], base[mask == 255]), "static did not change region"
+    assert np.array_equal(a, a2), "same seed must be identical"
+    assert not np.array_equal(a, b), "different seed must differ"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:

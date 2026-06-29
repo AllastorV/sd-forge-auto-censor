@@ -338,6 +338,25 @@ def style_region(
         _composite(img, temp, mask)
 
     # ------------------------------------------------------------------
+    # static — TV static noise fill (mono/colour, optional scanlines)
+    # ------------------------------------------------------------------
+    elif style == "static":
+        intensity = min(1.0, max(0.1, opts.get("staticIntensity", 100) / 100.0))
+        rng = np.random.default_rng(int(opts.get("glitchSeed", 7)))
+        region = canvas[y : y + h, x : x + w].astype(np.float32)
+        if opts.get("staticMono", True):
+            n = rng.integers(0, 256, (h, w, 1)).astype(np.float32)
+            noise = np.repeat(n, 3, axis=2)
+        else:
+            noise = rng.integers(0, 256, (h, w, 3)).astype(np.float32)
+        if opts.get("staticScanlines", False):
+            noise[::2, :, :] *= 0.5      # darken every other row → CRT scanlines
+        out = noise * intensity + region * (1.0 - intensity)
+        temp = img.copy()
+        temp[y : y + h, x : x + w] = np.clip(out, 0, 255).astype(np.uint8)
+        _composite(img, temp, mask)
+
+    # ------------------------------------------------------------------
     # glitch — chromatic-shift + random slice displacement  TS L176-192
     # ------------------------------------------------------------------
     else:
@@ -482,6 +501,19 @@ def style_whole(img_rgb: np.ndarray, opts: dict, rand) -> np.ndarray:
         out = blurred * 0.65 + 255.0 * 0.35
         rng = np.random.default_rng(int(opts.get("glitchSeed", 7)))
         out += rng.normal(0.0, 6.0, out.shape)
+        return np.clip(out, 0, 255).astype(np.uint8)
+
+    elif style == "static":
+        intensity = min(1.0, max(0.1, opts.get("staticIntensity", 100) / 100.0))
+        rng = np.random.default_rng(int(opts.get("glitchSeed", 7)))
+        if opts.get("staticMono", True):
+            n = rng.integers(0, 256, (H, W, 1)).astype(np.float32)
+            noise = np.repeat(n, 3, axis=2)
+        else:
+            noise = rng.integers(0, 256, (H, W, 3)).astype(np.float32)
+        if opts.get("staticScanlines", False):
+            noise[::2, :, :] *= 0.5
+        out = noise * intensity + img_rgb.astype(np.float32) * (1.0 - intensity)
         return np.clip(out, 0, 255).astype(np.uint8)
 
     else:  # glitch
