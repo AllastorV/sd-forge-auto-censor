@@ -1,4 +1,5 @@
 """Auto-Censor Gradio tab for Forge: detect (NudeNet) + censor (engine) + brush mask."""
+import shutil
 import sys
 import tempfile
 import time
@@ -89,6 +90,16 @@ def _font(size):
     return ImageFont.load_default()
 
 
+def _sticker_items():
+    """[(name, abs_path)] of all stickers, or [] if the engine failed to import."""
+    if ce is None:
+        return []
+    try:
+        return ce.list_stickers()
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def _draw_preview(pil, boxes):
     img = pil.convert("RGB").copy()
     d = ImageDraw.Draw(img)
@@ -165,6 +176,7 @@ def _censor(editor, boxes, checked, mode, style, shape, mosaic_blocks, blur_stre
             glitch_intensity, glitch_seed, bar_count, bar_thickness, bar_color, padding, merge_gap,
             bg_effect, bg_intensity, box_frames, frame_labels, preset, conf, quick,
             frost_amount, static_intensity, static_mono, static_scanlines,
+            sticker_path, sticker_fit, sticker_scale, sticker_opacity, sticker_rotation,
             progress=gr.Progress()):
     bg = _bg_of(editor)
     if ce is None or bg is None:
@@ -196,6 +208,9 @@ def _censor(editor, boxes, checked, mode, style, shape, mosaic_blocks, blur_stre
         "boxFrames": bool(box_frames), "frameLabels": bool(frame_labels),
         "frostAmount": int(frost_amount), "staticIntensity": int(static_intensity),
         "staticMono": bool(static_mono), "staticScanlines": bool(static_scanlines),
+        "stickerPath": sticker_path, "stickerFit": sticker_fit,
+        "stickerScale": float(sticker_scale), "stickerOpacity": float(sticker_opacity),
+        "stickerRotation": float(sticker_rotation),
     }
     progress(0.6, desc="Applying censor…")
     ts = int(time.time() * 1000)
@@ -282,6 +297,23 @@ def on_ui_tabs():
                     bg_effect = gr.Dropdown(BG_EFFECTS, value="glitch", label="Stylize effect",
                                             info="'reverse *' effects the REGIONS instead of the background.")
                     bg_intensity = gr.Slider(0, 100, value=70, step=1, label="Stylize intensity")
+                # Sticker-only library panel — revealed when style == "sticker" (Censor mode).
+                _init_items = _sticker_items()
+                _init_paths = [p for _, p in _init_items]
+                sticker_paths_state = gr.State(_init_paths)
+                active_sticker = gr.State(_init_paths[0] if _init_paths else None)
+                with gr.Group(visible=False) as sticker_box:
+                    sticker_gallery = gr.Gallery(value=_init_paths, label="Stickers (click to pick)",
+                                                 columns=4, height=160, allow_preview=False)
+                    with gr.Row():
+                        sticker_upload = gr.File(label="Upload PNG", file_types=[".png"],
+                                                 file_count="multiple", type="filepath")
+                        sticker_refresh = gr.Button("↻ Refresh")
+                    sticker_fit = gr.Radio(["cover", "contain", "stretch"], value="cover",
+                                           label="Fit", info="cover = fill region (may crop).")
+                    sticker_scale = gr.Slider(50, 200, value=100, step=1, label="Scale %")
+                    sticker_opacity = gr.Slider(0, 100, value=100, step=1, label="Opacity")
+                    sticker_rotation = gr.Slider(-180, 180, value=0, step=1, label="Rotation")
                 preset = gr.Dropdown(PRESETS, value="None", label="Export preset",
                                      info="JP mosaic presets (DLsite/FANZA/Pixiv) + Master/Both. Overrides the style.")
             with gr.Column():
@@ -325,21 +357,65 @@ def on_ui_tabs():
         # Strength band incl. "Blur strength") does nothing in Stylize — leaving them
         # visible makes users drag the inert "Blur strength" and see no change. So in
         # Stylize: reveal the stylize box, hide all the censor-only controls.
-        def _mode_toggle(m):
+        def _sticker_visible(mode_val, style_val):
+            return gr.update(visible=(mode_val == "Censor" and style_val == "sticker"))
+
+        def _mode_toggle(m, style_val):
             stylize = (m == "Stylize")
             hide = gr.update(visible=not stylize)
-            return (gr.update(visible=stylize),   # stylize_box
-                    hide,                          # style
-                    hide,                          # shape
-                    hide,                          # preset
-                    hide)                          # strength_acc
-        mode.change(_mode_toggle, [mode], [stylize_box, style, shape, preset, strength_acc])
+            return (gr.update(visible=stylize),         # stylize_box
+                    hide,                                # style
+                    hide,                                # shape
+                    hide,                                # preset
+                    hide,                                # strength_acc
+                    _sticker_visible(m, style_val))      # sticker_box
+        mode.change(_mode_toggle, [mode, style],
+                    [stylize_box, style, shape, preset, strength_acc, sticker_box])
+
+        def _style_toggle(style_val, mode_val):
+            return _sticker_visible(mode_val, style_val)
+        style.change(_style_toggle, [style, mode], [sticker_box])
+
+        def _refresh_gallery():
+            items = _sticker_items()
+            paths = [p for _, p in items]
+            active = paths[0] if paths else None
+            return gr.update(value=paths), paths, active
+
+        def _upload_stickers(files):
+            dst_dir = Path(ce.STICKER_CUSTOM_DIR) if ce is not None else None
+            if dst_dir is not None and files:
+                dst_dir.mkdir(parents=True, exist_ok=True)
+                for f in files:
+                    src = Path(f)
+                    if src.suffix.lower() == ".png":
+                        try:
+                            shutil.copy(src, dst_dir / src.name)
+                        except Exception as e:  # noqa: BLE001
+                            print(f"[auto-censor] sticker upload copy failed: {e}")
+            items = _sticker_items()
+            paths = [p for _, p in items]
+            active = paths[-1] if paths else None    # newest selected
+            return gr.update(value=paths), paths, active
+
+        def _select_sticker(paths, evt: gr.SelectData):
+            if paths and evt is not None and 0 <= evt.index < len(paths):
+                return paths[evt.index]
+            return gr.update()
+
+        sticker_refresh.click(_refresh_gallery, None,
+                              [sticker_gallery, sticker_paths_state, active_sticker])
+        sticker_upload.upload(_upload_stickers, [sticker_upload],
+                              [sticker_gallery, sticker_paths_state, active_sticker])
+        sticker_gallery.select(_select_sticker, [sticker_paths_state], [active_sticker])
+
         censor_btn.click(
             _censor,
             [inp, boxes_state, classes, mode, style, shape, mosaic_blocks, blur_strength,
              glitch_intensity, glitch_seed, bar_count, bar_thickness, bar_color, padding, merge_gap,
              bg_effect, bg_intensity, box_frames, frame_labels, preset, conf, quick,
-             frost_amount, static_intensity, static_mono, static_scanlines],
+             frost_amount, static_intensity, static_mono, static_scanlines,
+             active_sticker, sticker_fit, sticker_scale, sticker_opacity, sticker_rotation],
             [out, download, status],
         )
 
