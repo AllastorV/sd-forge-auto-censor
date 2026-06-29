@@ -33,7 +33,31 @@ def test_merge_rects_keeps_far_apart():
 
 
 def test_blur_radius_formula():
-    assert ce.blur_radius(1000, 500, 70) == max(1, ce.jround((1000 / 100) * (70 / 100) * 14))
+    assert ce.blur_radius(1000, 500, 70) == max(1, ce.jround((1000 / 100) * (70 / 100) * 5))
+
+
+def test_blur_strength_is_responsive():
+    # Regression: the blur slider must visibly change output across its WHOLE range.
+    # The old 14x multiplier saturated — sigma >= ~9 flattens a ~220px region, so
+    # strengths 30..100 all yielded an identical fully-blurred block (slider looked
+    # dead). We assert remaining detail decreases monotonically AND that the top
+    # half of the slider still differs (the bug had std(50) ~ std(100) ~ 0).
+    W = H = 220
+    yy, xx = np.mgrid[0:H, 0:W]
+    region = np.stack([(((xx // 12 + yy // 12) % 2) * 200 + 30).astype(np.uint8)] * 3, -1)
+    rect = {"x": 0, "y": 0, "w": W, "h": H, "ellipse": False}
+
+    def remaining_std(strength):
+        img = region.copy()
+        ce.style_region(img, region.copy(), rect,
+                        {**ce.AUTO_CENSOR_DEFAULTS, "style": "blur", "blurStrength": strength},
+                        ce.lcg(7))
+        return float(img[:, :, 0].std())
+
+    stds = [remaining_std(s) for s in (10, 30, 50, 70, 100)]
+    assert all(a >= b for a, b in zip(stds, stds[1:])), f"not monotonic: {stds}"
+    assert stds[2] - stds[4] > 2.0, f"upper slider saturated (50~100 identical): {stds}"
+    assert stds[0] - stds[4] > 20.0, f"slider barely moves: {stds}"
 
 
 def test_bar_style_changes_only_region():
@@ -137,6 +161,25 @@ def test_export_preset_returns_named_outputs():
     outs = ce.export_preset(img, [box], "Both")
     names = [o[0] for o in outs]
     assert any("master" in n.lower() for n in names) and any("censor" in n.lower() for n in names)
+
+
+def test_export_preset_mosaic_censors_small_region():
+    # Regression: JP mosaic presets must use an ABSOLUTE tile (longSide/divisor),
+    # so even a SMALL region is properly mosaiced. The old code converted it to a
+    # region-relative mosaicBlocks, so for a region much smaller than the image the
+    # tile collapsed to ~1px — i.e. no censoring at all (presets "didn't work").
+    rng = np.random.default_rng(1)
+    img = Image.fromarray(rng.integers(0, 255, (1024, 1024, 3), dtype=np.uint8))
+    box = {"x1": 0.46, "y1": 0.46, "x2": 0.54, "y2": 0.54, "score": 0.9, "class_id": 3,
+           "label": "X", "sensitive": True, "exposed": True, "ellipse": False,
+           "bodyPart": None, "derived": False}
+    y0, y1, x0, x1 = 478, 545, 478, 545  # well inside the ~82px region
+    orig_std = float(np.asarray(img)[y0:y1, x0:x1, 0].std())
+    for preset in ("DLsite", "FANZA", "Pixiv"):
+        outs = ce.export_preset(img, [box], preset)
+        censored = next(im for name, im, *_ in outs if "censor" in name.lower())
+        std = float(np.asarray(censored.convert("RGB"))[y0:y1, x0:x1, 0].std())
+        assert std < orig_std * 0.4, f"{preset}: small region barely censored ({std:.1f} vs {orig_std:.1f})"
 
 
 if __name__ == "__main__":

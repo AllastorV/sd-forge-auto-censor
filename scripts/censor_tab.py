@@ -78,15 +78,50 @@ def _mask_of(editor, w, h):
     return Image.fromarray(m, "L").resize((w, h), Image.Resampling.NEAREST)
 
 
+def _font(size):
+    """A readable TrueType font sized to the image; fall back to PIL's bitmap font."""
+    from PIL import ImageFont
+    for name in ("arial.ttf", "DejaVuSans.ttf", "Arial.ttf", "LiberationSans-Regular.ttf"):
+        try:
+            return ImageFont.truetype(name, size)
+        except Exception:  # noqa: BLE001
+            continue
+    return ImageFont.load_default()
+
+
 def _draw_preview(pil, boxes):
     img = pil.convert("RGB").copy()
     d = ImageDraw.Draw(img)
     W, H = img.size
+    lw = max(2, W // 320)
+    font = _font(max(12, W // 55))
+
+    # 1) outlines first
+    cols = []
     for b in boxes:
         x1, y1, x2, y2 = b["x1"] * W, b["y1"] * H, b["x2"] * W, b["y2"] * H
         col = (255, 59, 59) if b["sensitive"] else (57, 211, 83)
-        d.rectangle([x1, y1, x2, y2], outline=col, width=max(2, W // 320))
-        d.text((x1 + 2, max(0, y1 - 12)), f"{b['label']} {int(b['score'] * 100)}%", fill=col)
+        cols.append(col)
+        d.rectangle([x1, y1, x2, y2], outline=col, width=lw)
+
+    # 2) measure + declutter labels so overlapping boxes don't stack their text
+    labels = [f"{b['label']} {int(b['score'] * 100)}%" for b in boxes]
+    sizes = []
+    for t in labels:
+        l, tp, r, bo = d.textbbox((0, 0), t, font=font)
+        sizes.append((r - l, bo - tp))
+    lboxes = [{"box_x": int(b["x1"] * W), "box_y": int(b["y1"] * H),
+               "lw": tw + 6, "lh": th + 4}
+              for b, (tw, th) in zip(boxes, sizes)]
+    if ce is not None:
+        positions = ce.stagger_label_positions(lboxes, W, H)
+    else:
+        positions = [(lb["box_x"], max(0, lb["box_y"] - lb["lh"])) for lb in lboxes]
+
+    # 3) label background pill + black text at the decluttered positions
+    for col, label, (tw, th), (lx, ly) in zip(cols, labels, sizes, positions):
+        d.rectangle([lx, ly, lx + tw + 6, ly + th + 4], fill=col)
+        d.text((lx + 3, ly + 2), label, fill=(0, 0, 0), font=font)
     return img
 
 
@@ -94,14 +129,20 @@ def _label_str(b):
     return f"{b['label']}  {b['score']:.2f}"
 
 
-def _detect(editor, conf):
+def _detect(editor, conf, progress=gr.Progress()):
     bg = _bg_of(editor)
     if nd is None or bg is None:
         return [], None, gr.update(choices=[], value=[]), "Load an image and click Detect."
+    # First call loads the NudeNet ONNX model (a few seconds) — show the stage so
+    # the user can see it actually started.
+    progress(0.1, desc="Loading detector…")
     boxes = nd.detect(bg, float(conf))
+    progress(0.8, desc="Drawing regions…")
     choices = [_label_str(b) for b in boxes]
     exposed = [_label_str(b) for b in boxes if b.get("exposed")]
-    return boxes, _draw_preview(bg, boxes), gr.update(choices=choices, value=exposed), f"Detected {len(boxes)} regions."
+    preview = _draw_preview(bg, boxes)
+    progress(1.0, desc="Done")
+    return boxes, preview, gr.update(choices=choices, value=exposed), f"Detected {len(boxes)} regions."
 
 
 def _quick(boxes, mode):
@@ -122,12 +163,15 @@ def _quick(boxes, mode):
 
 def _censor(editor, boxes, checked, mode, style, shape, mosaic_blocks, blur_strength,
             glitch_intensity, glitch_seed, bar_count, bar_thickness, bar_color, padding, merge_gap,
-            bg_effect, bg_intensity, box_frames, frame_labels, preset, conf, quick):
+            bg_effect, bg_intensity, box_frames, frame_labels, preset, conf, quick,
+            progress=gr.Progress()):
     bg = _bg_of(editor)
     if ce is None or bg is None:
         return None, None, "Load an image first."
+    progress(0.1, desc="Preparing…")
     boxes = boxes or []
     if not boxes and nd is not None:
+        progress(0.25, desc="Detecting regions…")
         boxes = nd.detect(bg, float(conf))
     checkset = set(checked or [])
     sel = [b for b in boxes if _label_str(b) in checkset] if checkset else []
@@ -150,17 +194,22 @@ def _censor(editor, boxes, checked, mode, style, shape, mosaic_blocks, blur_stre
         "bgEffect": bg_effect, "bgIntensity": int(bg_intensity),
         "boxFrames": bool(box_frames), "frameLabels": bool(frame_labels),
     }
+    progress(0.6, desc="Applying censor…")
     ts = int(time.time() * 1000)
     if preset and preset != "None":
         outs = ce.export_preset(bg, sel, preset, manual_mask=mask)
-        files, first = [], None
+        files, first, censored = [], None, None
         for name, im, fmt, dpi in outs:
             p = _OUT_DIR / f"censor_{ts}_{name}.{fmt}"
             im.save(p, dpi=(dpi, dpi))
             files.append(str(p))
             if first is None:
                 first = im
-        return first, files, f"Exported {preset}: {len(files)} file(s)."
+            if "censor" in name.lower():
+                censored = im
+        # Preview the censored output. Master/Both also write an uncensored 'master'
+        # file — previewing that looks like the preset did nothing.
+        return (censored or first), files, f"Exported {preset}: {len(files)} file(s)."
     out = ce.apply_auto_censor(bg, sel, opts, manual_mask=mask)
     p = _OUT_DIR / f"censor_{ts}.png"
     out.save(p)
@@ -189,8 +238,10 @@ def on_ui_tabs():
                 inp = gr.ImageEditor(
                     label="1 · Image  (paint = extra censor mask)", type="pil",
                     sources=["upload", "clipboard"],
-                    brush=gr.Brush(default_size=40, color_mode="defaults",
-                                   colors=["#ff2d2d", "#39d353", "#3d7bff", "#ffffff", "#000000"]),
+                    # Single fixed brush color — masking only uses the painted alpha,
+                    # so the colour is cosmetic; lock it so there's no colour picker.
+                    brush=gr.Brush(default_size=40, color_mode="fixed",
+                                   colors=["#ff2d2d"], default_color="#ff2d2d"),
                     eraser=gr.Eraser(), elem_id="auto_censor_input")
                 # Hidden paste target for the cross-tab "Send to Censor" buttons; its
                 # .change copies the image into the ImageEditor background.
@@ -231,7 +282,7 @@ def on_ui_tabs():
                 preset = gr.Dropdown(PRESETS, value="None", label="Export preset",
                                      info="JP mosaic presets (DLsite/FANZA/Pixiv) + Master/Both. Overrides the style.")
             with gr.Column():
-                with gr.Accordion("Strength", open=True):
+                with gr.Accordion("Strength", open=True) as strength_acc:
                     mosaic_blocks = gr.Slider(3, 40, value=10, step=1, label="Mosaic blocks",
                                               info="Fewer blocks = chunkier mosaic.")
                     blur_strength = gr.Slider(10, 100, value=70, step=1, label="Blur strength",
@@ -257,8 +308,20 @@ def on_ui_tabs():
 
         detect_btn.click(_detect, [inp, conf], [boxes_state, preview, classes, status])
         quick.change(_quick, [boxes_state, quick], [classes])
-        # Show the stylize controls only in Stylize mode.
-        mode.change(lambda m: gr.update(visible=(m == "Stylize")), [mode], [stylize_box])
+        # Stylize mode is driven ONLY by "Stylize intensity" (bg_intensity). Every
+        # censor-only control (Censor style, Region shape, Export preset, the whole
+        # Strength band incl. "Blur strength") does nothing in Stylize — leaving them
+        # visible makes users drag the inert "Blur strength" and see no change. So in
+        # Stylize: reveal the stylize box, hide all the censor-only controls.
+        def _mode_toggle(m):
+            stylize = (m == "Stylize")
+            hide = gr.update(visible=not stylize)
+            return (gr.update(visible=stylize),   # stylize_box
+                    hide,                          # style
+                    hide,                          # shape
+                    hide,                          # preset
+                    hide)                          # strength_acc
+        mode.change(_mode_toggle, [mode], [stylize_box, style, shape, preset, strength_acc])
         censor_btn.click(
             _censor,
             [inp, boxes_state, classes, mode, style, shape, mosaic_blocks, blur_strength,

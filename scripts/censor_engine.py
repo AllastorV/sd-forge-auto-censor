@@ -148,14 +148,16 @@ def box_to_rect(box: dict, W: int, H: int, padding: float, shape: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def blur_radius(w: int, h: int, strength: float) -> int:
-    """Blur sigma in pixels: max(1, jround(longest/100 * strength/100 * 14)).
+    """Blur sigma in pixels: max(1, jround(longest/100 * strength/100 * 5)).
 
-    The TS source fed this number to a CSS `filter: blur(Npx)` *radius*; we feed
-    it to cv2.GaussianBlur as sigmaX, which is ~2x stronger. Halving (28→14)
-    restores the intended look AND makes the strength slider visibly responsive
-    instead of saturating to a full blur even at low values.
+    Fed to cv2.GaussianBlur as sigmaX. The earlier 14× multiplier *saturated*:
+    on a typical ~220px region, sigma ≥ ~9 already flattens it completely, so
+    strengths 30–100 all produced an identical fully-blurred block and the slider
+    looked dead. Measuring remaining-detail std across strengths showed 5× spreads
+    a perceptible blur ramp over the WHOLE slider (sharp at 10 → fully hidden at
+    100) for both the region and the full-image (stylize / brush-mask) paths.
     """
-    return max(1, jround((max(w, h) / 100) * (strength / 100) * 14))
+    return max(1, jround((max(w, h) / 100) * (strength / 100) * 5))
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -226,9 +228,17 @@ def style_region(
     # ------------------------------------------------------------------
     elif style == "mosaic":
         longest = max(w, h)
-        blocks = max(3, jround(opts.get("mosaicBlocks", 10)))
-        sw = max(2, jround((w / longest) * blocks))
-        sh = max(2, jround((h / longest) * blocks))
+        tile = opts.get("mosaicTile")
+        if tile:
+            # Absolute pixel tile size. JP export presets mandate a fixed tile
+            # (longSide/100 etc.) that must NOT shrink for smaller regions.
+            tile = max(2, jround(tile))
+            sw = max(2, jround(w / tile))
+            sh = max(2, jround(h / tile))
+        else:
+            blocks = max(3, jround(opts.get("mosaicBlocks", 10)))
+            sw = max(2, jround((w / longest) * blocks))
+            sh = max(2, jround((h / longest) * blocks))
         region = canvas[y : y + h, x : x + w]
         small = cv2.resize(region, (sw, sh), interpolation=cv2.INTER_AREA)
         big = cv2.resize(small, (w, h), interpolation=cv2.INTER_NEAREST)
@@ -436,7 +446,11 @@ def style_whole(img_rgb: np.ndarray, opts: dict, rand) -> np.ndarray:
         return out
 
     elif style == "mosaic":
-        block = max(3, jround(max(W, H) / (opts.get("mosaicBlocks", 10) * 3.2)))
+        tile = opts.get("mosaicTile")
+        if tile:
+            block = max(2, jround(tile))   # absolute tile (JP export presets)
+        else:
+            block = max(3, jround(max(W, H) / (opts.get("mosaicBlocks", 10) * 3.2)))
         sw = max(2, jround(W / block))
         sh = max(2, jround(H / block))
         small = cv2.resize(img_rgb, (sw, sh), interpolation=cv2.INTER_AREA)
@@ -452,19 +466,64 @@ def style_whole(img_rgb: np.ndarray, opts: dict, rand) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
-# draw_frames — TS drawFrames L218-233
+# stagger_label_positions — greedy label declutter (shared by both renderers)
+# ---------------------------------------------------------------------------
+
+def stagger_label_positions(label_boxes: list, W: int, H: int, pad: int = 2) -> list:
+    """Collision-avoided top-left (lx, ly) for each detection label's background.
+
+    Two boxes that overlap (e.g. two FEMALE_BREAST_COVERED side by side) would
+    otherwise stamp their labels on top of each other. This settles labels
+    top-to-bottom and pushes any that collide down below the one they hit, so
+    every label stays readable.
+
+    label_boxes : list of {box_x, box_y, lw, lh} in the SAME order as the boxes
+        being drawn. box_x/box_y = detection rect top-left; lw/lh = label
+        background size (text + its own padding).
+    Returns a list of (lx, ly) in input order.
+    """
+    placed = []          # already-claimed label rects: (x1, y1, x2, y2)
+    pos = {}
+    # Settle higher boxes first so labels cascade downward predictably.
+    order = sorted(range(len(label_boxes)),
+                   key=lambda i: (label_boxes[i]["box_y"], label_boxes[i]["box_x"]))
+    for i in order:
+        lb = label_boxes[i]
+        lw, lh = lb["lw"], lb["lh"]
+        lx = max(0, min(W - lw, lb["box_x"]))
+        ly = lb["box_y"] - lh - pad           # preferred: just above the box
+        if ly < 0:
+            ly = lb["box_y"] + pad            # no room above → drop inside top edge
+        for _ in range(64):                   # push below whatever it overlaps
+            r = (lx, ly, lx + lw, ly + lh)
+            hit = next((p for p in placed
+                        if not (r[2] <= p[0] or r[0] >= p[2]
+                                or r[3] <= p[1] or r[1] >= p[3])), None)
+            if hit is None:
+                break
+            ly = hit[3] + 1
+        ly = max(0, min(ly, H - lh))           # keep on-canvas
+        placed.append((lx, ly, lx + lw, ly + lh))
+        pos[i] = (lx, ly)
+    return [pos[i] for i in range(len(label_boxes))]
+
+
+# ---------------------------------------------------------------------------
+# draw_frames — TS drawFrames L218-233 (+ label declutter)
 # ---------------------------------------------------------------------------
 
 def draw_frames(img_rgb: np.ndarray, boxes: list, opts: dict) -> None:
     """Draw detection box outlines and optional labels onto img_rgb in-place.
 
     Sensitive boxes: #ff3b3b (255, 59, 59). Other: #39d353 (57, 211, 83).
-    Label format: "LABEL  NN%" (double space before percent).
+    Label format: "LABEL  NN%" (double space before percent). Labels are
+    decluttered via stagger_label_positions so overlapping boxes don't collide.
     """
     H, W = img_rgb.shape[:2]
     lw = max(2, jround(min(W, H) / 320))
     fs = max(11, jround(min(W, H) / 55))
 
+    # 1) outlines first (so later label fills sit on top of every box edge)
     for b in boxes:
         x = int(b["x1"] * W)
         y = int(b["y1"] * H)
@@ -472,18 +531,27 @@ def draw_frames(img_rgb: np.ndarray, boxes: list, opts: dict) -> None:
         bh = int((b["y2"] - b["y1"]) * H)
         col_rgb = (255, 59, 59) if b.get("sensitive", False) else (57, 211, 83)
         cv2.rectangle(img_rgb, (x, y), (x + bw, y + bh), col_rgb, lw)
-        if opts.get("frameLabels", True):
-            label = f"{b['label']}  {jround(b['score'] * 100)}%"
-            font = cv2.FONT_HERSHEY_PLAIN
-            font_scale = max(0.5, fs / 18.0)
-            thickness = max(1, lw // 2)
-            (tw, th), _ = cv2.getTextSize(label, font, font_scale, thickness)
-            bg_x1, bg_y1 = x, max(0, y - th - 4)
-            bg_x2, bg_y2 = x + tw + 8, y
-            cv2.rectangle(img_rgb, (bg_x1, bg_y1), (bg_x2, bg_y2), col_rgb, -1)
-            text_y = max(th, y - 2)
-            cv2.putText(img_rgb, label, (x + 4, text_y), font, font_scale,
-                        (0, 0, 0), thickness)
+
+    if not opts.get("frameLabels", True):
+        return
+
+    # 2) measure every label, then declutter their positions
+    font = cv2.FONT_HERSHEY_PLAIN
+    font_scale = max(0.5, fs / 18.0)
+    thickness = max(1, lw // 2)
+    labels = [f"{b['label']}  {jround(b['score'] * 100)}%" for b in boxes]
+    sizes = [cv2.getTextSize(t, font, font_scale, thickness)[0] for t in labels]
+    lboxes = [{"box_x": int(b["x1"] * W), "box_y": int(b["y1"] * H),
+               "lw": tw + 8, "lh": th + 6}
+              for b, (tw, th) in zip(boxes, sizes)]
+    positions = stagger_label_positions(lboxes, W, H)
+
+    # 3) label background + text at the decluttered positions
+    for b, label, (tw, th), (lx, ly) in zip(boxes, labels, sizes, positions):
+        col_rgb = (255, 59, 59) if b.get("sensitive", False) else (57, 211, 83)
+        cv2.rectangle(img_rgb, (lx, ly), (lx + tw + 8, ly + th + 6), col_rgb, -1)
+        cv2.putText(img_rgb, label, (lx + 4, ly + th + 2), font, font_scale,
+                    (0, 0, 0), thickness, cv2.LINE_AA)
 
 
 # ---------------------------------------------------------------------------
@@ -622,13 +690,15 @@ def export_preset(pil, boxes: list, preset: str, manual_mask=None) -> list:
     style, divisor, min_tile, fmt, dpi, do_master, do_censored = _EXPORT_PRESETS[key]
 
     def _make_censored(censor_style: str, div: int, mt: int) -> "_PILImage.Image":
+        # JP presets mandate an ABSOLUTE mosaic tile (longSide/divisor, min mt px).
+        # Pass it as mosaicTile so the tile stays fixed regardless of region size.
+        # The old code converted it to relative mosaicBlocks, which shrank the tile
+        # for any region smaller than the whole image — so it barely censored.
         tile_size = max(mt, jround(long_side / div))
-        # mosaicBlocks: number of tiles across the longest dimension
-        mosaic_blocks = max(3, jround(long_side / tile_size))
         censor_opts = {
             **AUTO_CENSOR_DEFAULTS,
             "style": censor_style,
-            "mosaicBlocks": mosaic_blocks,
+            "mosaicTile": tile_size,
         }
         return apply_auto_censor(pil, boxes, censor_opts, manual_mask)
 
