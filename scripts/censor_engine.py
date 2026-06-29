@@ -323,6 +323,21 @@ def style_region(
         _composite(img, temp, mask)
 
     # ------------------------------------------------------------------
+    # frosted — blur + white veil + fine grain (frosted-glass look)
+    # ------------------------------------------------------------------
+    elif style == "frosted":
+        sigma = blur_radius(w, h, opts.get("frostAmount", 60))
+        region = canvas[y : y + h, x : x + w].astype(np.float32)
+        blurred = cv2.GaussianBlur(region, (0, 0), sigmaX=sigma)
+        veil = 0.35  # white veil opacity
+        out = blurred * (1.0 - veil) + 255.0 * veil
+        rng = np.random.default_rng(int(opts.get("glitchSeed", 7)))
+        out += rng.normal(0.0, 6.0, out.shape)  # subtle deterministic grain
+        temp = img.copy()
+        temp[y : y + h, x : x + w] = np.clip(out, 0, 255).astype(np.uint8)
+        _composite(img, temp, mask)
+
+    # ------------------------------------------------------------------
     # glitch — chromatic-shift + random slice displacement  TS L176-192
     # ------------------------------------------------------------------
     else:
@@ -460,6 +475,14 @@ def style_whole(img_rgb: np.ndarray, opts: dict, rand) -> np.ndarray:
     elif style == "blur":
         sigma = blur_radius(W, H, opts.get("blurStrength", 70))
         return cv2.GaussianBlur(img_rgb, (0, 0), sigmaX=sigma)
+
+    elif style == "frosted":
+        sigma = blur_radius(W, H, opts.get("frostAmount", 60))
+        blurred = cv2.GaussianBlur(img_rgb, (0, 0), sigmaX=sigma).astype(np.float32)
+        out = blurred * 0.65 + 255.0 * 0.35
+        rng = np.random.default_rng(int(opts.get("glitchSeed", 7)))
+        out += rng.normal(0.0, 6.0, out.shape)
+        return np.clip(out, 0, 255).astype(np.uint8)
 
     else:  # glitch
         return _glitch_whole(img_rgb, opts.get("glitchIntensity", 70), rand)

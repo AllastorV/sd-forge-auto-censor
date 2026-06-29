@@ -182,6 +182,23 @@ def test_export_preset_mosaic_censors_small_region():
         assert std < orig_std * 0.4, f"{preset}: small region barely censored ({std:.1f} vs {orig_std:.1f})"
 
 
+def test_frosted_is_blurred_and_lighter():
+    # Frosted = blur (lower variance) + white veil (lighter average), inside the region only.
+    rng = np.random.default_rng(2)
+    base = rng.integers(0, 255, (120, 120, 3), dtype=np.uint8)
+    rect = {"x": 30, "y": 30, "w": 50, "h": 50, "ellipse": False}
+    mask = ce.shape_mask(rect, 120, 120)
+    img = base.copy()
+    ce.style_region(img, base.copy(), rect,
+                    {**ce.AUTO_CENSOR_DEFAULTS, "style": "frosted", "frostAmount": 60}, ce.lcg(7))
+    # outside untouched
+    assert np.array_equal(img[mask == 0], base[mask == 0]), "frosted touched outside region"
+    inside_before = base[mask == 255].astype(np.float32)
+    inside_after = img[mask == 255].astype(np.float32)
+    assert inside_after.std() < inside_before.std(), "frosted should reduce variance (blur)"
+    assert inside_after.mean() > inside_before.mean(), "frosted should lighten (white veil)"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:
