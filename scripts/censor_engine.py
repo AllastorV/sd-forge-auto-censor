@@ -20,6 +20,12 @@ from __future__ import annotations
 import math
 import numpy as np
 import cv2
+import os
+from pathlib import Path as _Path
+
+_STICKER_ROOT = _Path(__file__).resolve().parent.parent / "stickers"
+STICKER_BUILTIN_DIR = str(_STICKER_ROOT / "builtin")
+STICKER_CUSTOM_DIR = str(_STICKER_ROOT / "custom")
 
 
 def jround(x: float) -> int:
@@ -286,6 +292,21 @@ def _sticker_for_rect(img: np.ndarray, rect: dict, opts: dict) -> None:
         float(opts.get("stickerOpacity", 100)),
         float(opts.get("stickerRotation", 0)),
     )
+
+
+def list_stickers(builtin: str = None, custom: str = None) -> list:
+    """Return [(name, abs_path), ...] for every .png — built-ins first, then customs.
+
+    Each folder is listed alphabetically. Defaults to the extension's
+    stickers/builtin and stickers/custom directories.
+    """
+    out = []
+    for d in (builtin or STICKER_BUILTIN_DIR, custom or STICKER_CUSTOM_DIR):
+        if d and os.path.isdir(d):
+            for fn in sorted(os.listdir(d)):
+                if fn.lower().endswith(".png"):
+                    out.append((os.path.splitext(fn)[0], os.path.abspath(os.path.join(d, fn))))
+    return out
 
 # ---------------------------------------------------------------------------
 # style_region — TS styleRegion L156-193 (7 styles)

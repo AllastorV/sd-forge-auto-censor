@@ -293,6 +293,22 @@ def test_apply_censor_sticker_brush_mask():
     assert out[5, 5].tolist() == [200, 200, 200], "sticker leaked outside brush bbox"
 
 
+def test_list_stickers_builtin_and_custom():
+    import tempfile, os
+    from PIL import Image
+    bd = tempfile.mkdtemp(); cd = tempfile.mkdtemp()
+    Image.new("RGBA", (8, 8)).save(os.path.join(bd, "heart.png"))
+    Image.new("RGBA", (8, 8)).save(os.path.join(bd, "star.png"))
+    items = ce.list_stickers(builtin=bd, custom=cd)
+    names = [n for n, _ in items]
+    assert "heart" in names and "star" in names, names
+    # a file dropped into custom shows up on the next call
+    Image.new("RGBA", (8, 8)).save(os.path.join(cd, "mine.png"))
+    items2 = ce.list_stickers(builtin=bd, custom=cd)
+    assert "mine" in [n for n, _ in items2], items2
+    assert os.path.isabs(items2[0][1]), "paths must be absolute"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:
