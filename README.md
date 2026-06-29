@@ -95,6 +95,9 @@ switch to **All sensitive** to also cover the *covered* regions.
 | `barsV` / `barsH` | Vertical / horizontal stripes, image peeking through the gaps. |
 | `manga` | Sliced horizontal bars with a sideways displacement, manga-style. |
 | `glitch` | Chromatic shift + random slice tears. |
+| `sticker` | Overlay your own PNG (or a built-in) on each region — upload from the UI, pick fit/scale/opacity/rotation. |
+| `frosted` | Frosted glass: blur + white veil + fine grain. |
+| `static`  | TV static: noise fill (mono/colour), optional CRT scanlines. |
 
 ![Black-bar style](docs/censor-bar.png)
 
@@ -107,6 +110,17 @@ detected regions, so you can cover anything the detector misses — or censor an
 with no detection at all.
 
 ![Brush stroke becomes a custom censor mask](docs/custom-mask.png)
+
+---
+
+## 🧷 Custom sticker library
+
+Pick **Censor style → sticker** to overlay a PNG on every detected region. The panel ships a
+handful of built-in stickers and lets you **upload your own** — dropped PNGs are copied into
+`stickers/custom/` (kept across restarts, never pushed). Tune **Fit** (cover / contain / stretch),
+**Scale**, **Opacity**, and **Rotation**. The sticker uses its own transparency, so the region shape
+selector doesn't apply. Works on the brush mask too: paint an area, pick a sticker, and it's centred
+on the painted region.
 
 ---
 
@@ -155,8 +169,9 @@ category-grouped non-max-suppression.
 
 ## 🗺️ Roadmap
 
-Current build ships NudeNet detection, the full censor engine (7 styles, shapes, stylize, brush mask,
-export presets), the tab, and Send-to-Censor. Planned next:
+Current build ships NudeNet detection, the full censor engine (10 styles incl. a custom sticker
+library, frosted glass, and TV static; shapes, stylize, brush mask, export presets), the tab, and
+Send-to-Censor. Planned next:
 
 - DWPose detection (eyes / armpits / feet / soles)
 - MobileSAM AI-segmentation mask shape

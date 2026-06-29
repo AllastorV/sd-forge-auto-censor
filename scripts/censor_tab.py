@@ -289,7 +289,7 @@ def on_ui_tabs():
                 mode = gr.Radio(["Censor", "Stylize"], value="Censor", label="Mode",
                                 info="Censor = hide the regions. Stylize = effect the background, keep regions visible.")
                 style = gr.Dropdown(STYLES, value="mosaic", label="Censor style",
-                                    info="How regions are hidden: mosaic / blur / black bar / stripes / manga / glitch.")
+                                    info="How regions are hidden: mosaic / blur / bar / stripes / manga / glitch / sticker / frosted / static.")
                 shape = gr.Dropdown(SHAPES, value="auto", label="Region shape",
                                     info="auto = oval over private parts, rectangle elsewhere.")
                 # Stylize-only controls — appear right here when Mode = Stylize.
