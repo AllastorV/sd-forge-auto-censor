@@ -816,7 +816,11 @@ def apply_auto_censor(pil, boxes: list, opts: dict, manual_mask=None):
                 box_to_rect(b, W, H, opts.get("padding", 0.08), shape)
                 for b in boxes
             ]
-            if shape != "ellipse":
+            # Stickers can opt out of merging so each detected box gets its OWN sticker
+            # (e.g. a star on each breast) instead of one sticker stretched across the
+            # merged region. Other styles, and sticker with the toggle off, merge as before.
+            per_box = opts.get("style") == "sticker" and opts.get("stickerPerBox", False)
+            if shape != "ellipse" and not per_box:
                 rects = merge_rects(rects, gap)
             for r in rects:
                 style_region(img_rgb, canvas, r, opts, rand)

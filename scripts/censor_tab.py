@@ -176,7 +176,7 @@ def _censor(editor, boxes, checked, mode, style, shape, mosaic_blocks, blur_stre
             glitch_intensity, glitch_seed, bar_count, bar_thickness, bar_color, padding, merge_gap,
             bg_effect, bg_intensity, box_frames, frame_labels, preset, conf, quick,
             frost_amount, static_intensity, static_mono, static_scanlines,
-            sticker_path, sticker_fit, sticker_scale, sticker_opacity, sticker_rotation,
+            sticker_path, sticker_fit, sticker_scale, sticker_opacity, sticker_rotation, sticker_per_box,
             progress=gr.Progress()):
     bg = _bg_of(editor)
     if ce is None or bg is None:
@@ -210,7 +210,7 @@ def _censor(editor, boxes, checked, mode, style, shape, mosaic_blocks, blur_stre
         "staticMono": bool(static_mono), "staticScanlines": bool(static_scanlines),
         "stickerPath": sticker_path, "stickerFit": sticker_fit,
         "stickerScale": float(sticker_scale), "stickerOpacity": float(sticker_opacity),
-        "stickerRotation": float(sticker_rotation),
+        "stickerRotation": float(sticker_rotation), "stickerPerBox": bool(sticker_per_box),
     }
     progress(0.6, desc="Applying censor…")
     ts = int(time.time() * 1000)
@@ -304,7 +304,8 @@ def on_ui_tabs():
                 active_sticker = gr.State(_init_paths[0] if _init_paths else None)
                 with gr.Group(visible=False) as sticker_box:
                     sticker_gallery = gr.Gallery(value=_init_paths, label="Stickers (click to pick)",
-                                                 columns=4, height=160, allow_preview=False)
+                                                 columns=5, height=200, object_fit="contain",
+                                                 allow_preview=False)
                     with gr.Row():
                         sticker_upload = gr.File(label="Upload PNG", file_types=[".png"],
                                                  file_count="multiple", type="filepath")
@@ -314,6 +315,9 @@ def on_ui_tabs():
                     sticker_scale = gr.Slider(50, 200, value=100, step=1, label="Scale %")
                     sticker_opacity = gr.Slider(0, 100, value=100, step=1, label="Opacity")
                     sticker_rotation = gr.Slider(-180, 180, value=0, step=1, label="Rotation")
+                    sticker_per_box = gr.Checkbox(value=True, label="One sticker per region",
+                                                  info="On: a sticker on each detected box (e.g. each breast). "
+                                                       "Off: one sticker spanning merged / overlapping boxes.")
                 preset = gr.Dropdown(PRESETS, value="None", label="Export preset",
                                      info="JP mosaic presets (DLsite/FANZA/Pixiv) + Master/Both. Overrides the style.")
             with gr.Column():
@@ -415,7 +419,7 @@ def on_ui_tabs():
              glitch_intensity, glitch_seed, bar_count, bar_thickness, bar_color, padding, merge_gap,
              bg_effect, bg_intensity, box_frames, frame_labels, preset, conf, quick,
              frost_amount, static_intensity, static_mono, static_scanlines,
-             active_sticker, sticker_fit, sticker_scale, sticker_opacity, sticker_rotation],
+             active_sticker, sticker_fit, sticker_scale, sticker_opacity, sticker_rotation, sticker_per_box],
             [out, download, status],
         )
 

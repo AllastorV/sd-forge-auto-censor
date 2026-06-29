@@ -309,6 +309,34 @@ def test_list_stickers_builtin_and_custom():
     assert os.path.isabs(items2[0][1]), "paths must be absolute"
 
 
+def test_sticker_per_box_skips_merge():
+    # stickerPerBox=True must NOT merge adjacent boxes → each box gets its own sticker,
+    # so the gap between two boxes stays original. Default (off) merges → one stretched
+    # sticker spanning both, covering the midpoint between them.
+    import tempfile, os
+    from PIL import Image
+    d = tempfile.mkdtemp()
+    p = os.path.join(d, "g.png")
+    Image.fromarray(_solid_sticker(20, 20, (0, 255, 0), 255), "RGBA").save(p)
+    ce._sticker_cache.clear()
+    img = Image.new("RGB", (200, 100), (100, 100, 100))
+    b1 = {"x1": 0.10, "y1": 0.30, "x2": 0.30, "y2": 0.70, "score": 0.9, "class_id": 3,
+          "label": "L", "sensitive": True, "exposed": True, "ellipse": False,
+          "bodyPart": None, "derived": False}
+    b2 = {"x1": 0.70, "y1": 0.30, "x2": 0.90, "y2": 0.70, "score": 0.9, "class_id": 3,
+          "label": "R", "sensitive": True, "exposed": True, "ellipse": False,
+          "bodyPart": None, "derived": False}
+    base = {**ce.AUTO_CENSOR_DEFAULTS, "style": "sticker", "stickerPath": p,
+            "stickerFit": "cover", "shape": "rect", "padding": 0.0, "mergeGap": 100}
+    mid_y, mid_x = 50, 100  # midpoint between the two boxes
+    merged = np.asarray(ce.apply_auto_censor(img, [b1, b2], {**base, "stickerPerBox": False}))
+    perbox = np.asarray(ce.apply_auto_censor(img, [b1, b2], {**base, "stickerPerBox": True}))
+    assert merged[mid_y, mid_x].tolist() == [0, 255, 0], \
+        f"merged should span both boxes (cover midpoint): {merged[mid_y, mid_x]}"
+    assert perbox[mid_y, mid_x].tolist() == [100, 100, 100], \
+        f"per-box should leave the midpoint between boxes uncovered: {perbox[mid_y, mid_x]}"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:

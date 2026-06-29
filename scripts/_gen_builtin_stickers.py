@@ -25,10 +25,17 @@ def _font(size):
 def heart():
     im = Image.new("RGBA", (S, S), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
-    r = S * 0.24
-    d.ellipse([S*0.18, S*0.22, S*0.18 + 2*r, S*0.22 + 2*r], fill=(230, 30, 60, 255))
-    d.ellipse([S*0.52, S*0.22, S*0.52 + 2*r, S*0.22 + 2*r], fill=(230, 30, 60, 255))
-    d.polygon([(S*0.12, S*0.46), (S*0.88, S*0.46), (S*0.5, S*0.9)], fill=(230, 30, 60, 255))
+    col = (230, 30, 60, 255)
+    cx = S / 2
+    r = S * 0.205          # lobe radius
+    top = S * 0.36         # lobe centre y
+    off = r * 0.92         # lobe centre x distance from middle (slight overlap → no gap)
+    lx, rx = cx - off, cx + off
+    # two symmetric top lobes
+    d.ellipse([lx - r, top - r, lx + r, top + r], fill=col)
+    d.ellipse([rx - r, top - r, rx + r, top + r], fill=col)
+    # bottom V: outer edge of each lobe down to a single point
+    d.polygon([(lx - r, top), (rx + r, top), (cx, S * 0.86)], fill=col)
     im.save(OUT / "heart.png")
 
 
@@ -63,10 +70,9 @@ def prohibited():
     w = int(S * 0.10)
     d.ellipse([w, w, S - w, S - w], outline=(220, 30, 30, 255), width=w)
     # diagonal slash
-    import math as _m
     cx = cy = S / 2
     r = (S - 2 * w) / 2
-    ox, oy = r * _m.cos(_m.radians(45)), r * _m.sin(_m.radians(45))
+    ox, oy = r * math.cos(math.radians(45)), r * math.sin(math.radians(45))
     d.line([(cx - ox, cy + oy), (cx + ox, cy - oy)], fill=(220, 30, 30, 255), width=w)
     im.save(OUT / "prohibited.png")
 
