@@ -1,4 +1,4 @@
-# 🔞 Auto-Censor — Stable Diffusion WebUI Forge extension
+# 🔞 Auto-Censor — Stable Diffusion WebUI Forge Neo extension
 
 **One-click NSFW detection and censoring, built right into Forge.**
 [NudeNet](https://github.com/notAI-tech/NudeNet) finds the sensitive regions, and you choose how to
