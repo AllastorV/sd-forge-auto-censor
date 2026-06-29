@@ -218,6 +218,81 @@ def test_static_changes_region_and_is_deterministic():
     assert not np.array_equal(a, b), "different seed must differ"
 
 
+# ---------------------------------------------------------------------------
+# Sticker tests (Task 3)
+# ---------------------------------------------------------------------------
+
+def _solid_sticker(h, w, rgb, alpha):
+    s = np.zeros((h, w, 4), dtype=np.uint8)
+    s[:, :, 0], s[:, :, 1], s[:, :, 2] = rgb
+    s[:, :, 3] = alpha
+    return s
+
+
+def test_composite_sticker_cover_fills_bbox():
+    img = np.full((100, 100, 3), 200, dtype=np.uint8)
+    sticker = _solid_sticker(10, 20, (0, 0, 255), 255)   # opaque blue, non-square
+    rect = {"x": 30, "y": 30, "w": 40, "h": 40, "ellipse": False}
+    ce.composite_sticker(img, rect, sticker, "cover", 100.0, 100.0, 0.0)
+    # cover must fully paint the bbox; the bbox center is blue, outside untouched
+    assert img[50, 50].tolist() == [0, 0, 255], "cover did not paint bbox center"
+    assert img[5, 5].tolist() == [200, 200, 200], "cover painted outside bbox"
+
+
+def test_composite_sticker_contain_stays_within_bbox():
+    img = np.full((100, 100, 3), 200, dtype=np.uint8)
+    sticker = _solid_sticker(10, 20, (255, 0, 0), 255)   # wide → contain leaves vertical margin
+    rect = {"x": 30, "y": 30, "w": 40, "h": 40, "ellipse": False}
+    ce.composite_sticker(img, rect, sticker, "contain", 100.0, 100.0, 0.0)
+    changed = np.any(img != 200, axis=2)
+    ys, xs = np.where(changed)
+    assert xs.min() >= 30 and xs.max() <= 69, "contain overflowed bbox horizontally"
+    assert ys.min() >= 30 and ys.max() <= 69, "contain overflowed bbox vertically"
+    assert changed.any(), "contain painted nothing"
+
+
+def test_composite_sticker_alpha_blends_half():
+    img = np.zeros((40, 40, 3), dtype=np.uint8)             # black bg
+    sticker = _solid_sticker(40, 40, (255, 255, 255), 128)  # ~50% white
+    rect = {"x": 0, "y": 0, "w": 40, "h": 40, "ellipse": False}
+    ce.composite_sticker(img, rect, sticker, "stretch", 100.0, 100.0, 0.0)
+    # 255 * (128/255) ≈ 128 over black
+    assert 118 <= int(img[20, 20, 0]) <= 138, f"alpha blend wrong: {img[20,20,0]}"
+
+
+def test_style_region_sticker_uses_path():
+    import tempfile, os
+    from PIL import Image
+    d = tempfile.mkdtemp()
+    p = os.path.join(d, "dot.png")
+    Image.fromarray(_solid_sticker(20, 20, (0, 255, 0), 255), "RGBA").save(p)
+    ce._sticker_cache.clear()
+    img = np.full((100, 100, 3), 100, dtype=np.uint8)
+    rect = {"x": 25, "y": 25, "w": 50, "h": 50, "ellipse": False}
+    ce.style_region(img, img.copy(), rect,
+                    {**ce.AUTO_CENSOR_DEFAULTS, "style": "sticker", "stickerPath": str(p),
+                     "stickerFit": "cover"}, ce.lcg(7))
+    assert img[50, 50].tolist() == [0, 255, 0], "sticker not composited onto region"
+    assert img[5, 5].tolist() == [100, 100, 100], "sticker leaked outside region bbox"
+
+
+def test_apply_censor_sticker_brush_mask():
+    import tempfile, os
+    from PIL import Image
+    d = tempfile.mkdtemp()
+    p = os.path.join(d, "blue.png")
+    Image.fromarray(_solid_sticker(20, 20, (0, 0, 255), 255), "RGBA").save(p)
+    ce._sticker_cache.clear()
+    img = Image.new("RGB", (100, 100), (200, 200, 200))
+    mask = np.zeros((100, 100), dtype=np.uint8)
+    mask[40:60, 40:60] = 255
+    opts = {**ce.AUTO_CENSOR_DEFAULTS, "style": "sticker", "stickerPath": p,
+            "stickerFit": "cover"}
+    out = np.asarray(ce.apply_auto_censor(img, [], opts, manual_mask=Image.fromarray(mask, "L")))
+    assert out[50, 50].tolist() == [0, 0, 255], "sticker not applied at brush bbox"
+    assert out[5, 5].tolist() == [200, 200, 200], "sticker leaked outside brush bbox"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:

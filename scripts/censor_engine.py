@@ -191,6 +191,103 @@ def _composite(img: np.ndarray, styled: np.ndarray, mask: np.ndarray) -> None:
     img[mask == 255] = styled[mask == 255]
 
 # ---------------------------------------------------------------------------
+# Sticker overlay — composite a user PNG (own alpha) onto a region
+# ---------------------------------------------------------------------------
+
+_sticker_cache: dict = {}  # abs path -> RGBA ndarray (H,W,4 uint8) | None
+
+
+def _load_sticker(path):
+    """Load an RGBA sticker PNG, cached by path. Non-RGBA is converted. None on failure."""
+    if not path:
+        return None
+    if path in _sticker_cache:
+        return _sticker_cache[path]
+    try:
+        from PIL import Image as _PILImage
+        arr = np.asarray(_PILImage.open(path).convert("RGBA"))
+    except Exception:  # noqa: BLE001 - missing/corrupt file → no-op sticker
+        arr = None
+    _sticker_cache[path] = arr
+    return arr
+
+
+def _rotate_rgba(sticker_rgba: np.ndarray, angle: float) -> np.ndarray:
+    """Rotate an RGBA sticker about its centre, expanding the canvas; transparent fill."""
+    h, w = sticker_rgba.shape[:2]
+    M = cv2.getRotationMatrix2D((w / 2.0, h / 2.0), angle, 1.0)
+    cos, sin = abs(M[0, 0]), abs(M[0, 1])
+    nw = int(jround(h * sin + w * cos))
+    nh = int(jround(h * cos + w * sin))
+    M[0, 2] += (nw - w) / 2.0
+    M[1, 2] += (nh - h) / 2.0
+    return cv2.warpAffine(sticker_rgba, M, (max(1, nw), max(1, nh)),
+                          flags=cv2.INTER_LINEAR, borderValue=(0, 0, 0, 0))
+
+
+def composite_sticker(img: np.ndarray, rect: dict, sticker_rgba: np.ndarray,
+                      fit: str, scale: float, opacity: float, rotation: float) -> None:
+    """Overlay an RGBA sticker onto *img* (RGB uint8) centred on *rect*, in-place.
+
+    fit: cover (fill bbox, may crop) / contain (fit inside) / stretch (distort to bbox).
+    scale/opacity: percent. rotation: degrees. Uses the sticker's own alpha (no shape mask).
+    """
+    if sticker_rgba is None or sticker_rgba.size == 0:
+        return
+    x, y, w, h = rect["x"], rect["y"], rect["w"], rect["h"]
+    if w < 1 or h < 1:
+        return
+
+    st = sticker_rgba
+    if rotation:
+        st = _rotate_rgba(st, float(rotation))
+    sh0, sw0 = st.shape[:2]
+    if sh0 < 1 or sw0 < 1:
+        return
+
+    sc = max(0.01, float(scale) / 100.0)
+    if fit == "stretch":
+        tw, th = jround(w * sc), jround(h * sc)
+    else:
+        ratio = max(w / sw0, h / sh0) if fit == "cover" else min(w / sw0, h / sh0)
+        tw, th = jround(sw0 * ratio * sc), jround(sh0 * ratio * sc)
+    tw, th = max(1, tw), max(1, th)
+
+    interp = cv2.INTER_AREA if (tw < sw0 or th < sh0) else cv2.INTER_LINEAR
+    st = cv2.resize(st, (tw, th), interpolation=interp)
+
+    H_img, W_img = img.shape[:2]
+    cx, cy = x + w / 2.0, y + h / 2.0
+    px, py = jround(cx - tw / 2.0), jround(cy - th / 2.0)
+
+    dx0, dy0 = max(0, px), max(0, py)
+    dx1, dy1 = min(W_img, px + tw), min(H_img, py + th)
+    if dx1 <= dx0 or dy1 <= dy0:
+        return
+    sx0, sy0 = dx0 - px, dy0 - py
+    crop = st[sy0:sy0 + (dy1 - dy0), sx0:sx0 + (dx1 - dx0)]
+
+    rgb = crop[:, :, :3].astype(np.float32)
+    a = (crop[:, :, 3].astype(np.float32) / 255.0) * (max(0.0, min(100.0, opacity)) / 100.0)
+    a = a[:, :, None]
+    dst = img[dy0:dy1, dx0:dx1].astype(np.float32)
+    img[dy0:dy1, dx0:dx1] = np.clip(rgb * a + dst * (1.0 - a), 0, 255).astype(np.uint8)
+
+
+def _sticker_for_rect(img: np.ndarray, rect: dict, opts: dict) -> None:
+    """Composite the active sticker (opts['stickerPath']) onto *rect*. No-op if unset/missing."""
+    sticker = _load_sticker(opts.get("stickerPath"))
+    if sticker is None:
+        return
+    composite_sticker(
+        img, rect, sticker,
+        opts.get("stickerFit", "cover"),
+        float(opts.get("stickerScale", 100)),
+        float(opts.get("stickerOpacity", 100)),
+        float(opts.get("stickerRotation", 0)),
+    )
+
+# ---------------------------------------------------------------------------
 # style_region — TS styleRegion L156-193 (7 styles)
 # ---------------------------------------------------------------------------
 
@@ -355,6 +452,12 @@ def style_region(
         temp = img.copy()
         temp[y : y + h, x : x + w] = np.clip(out, 0, 255).astype(np.uint8)
         _composite(img, temp, mask)
+
+    # ------------------------------------------------------------------
+    # sticker — overlay a PNG (own alpha) centred on the region
+    # ------------------------------------------------------------------
+    elif style == "sticker":
+        _sticker_for_rect(img, rect, opts)
 
     # ------------------------------------------------------------------
     # glitch — chromatic-shift + random slice displacement  TS L176-192
@@ -701,9 +804,17 @@ def apply_auto_censor(pil, boxes: list, opts: dict, manual_mask=None):
         if manual_mask is not None:
             mask_pil = manual_mask.convert("L").resize((W, H), _PILImage.NEAREST)
             mask_arr = np.asarray(mask_pil)
-            styled = style_whole(canvas, opts, rand)
             m = mask_arr > 127
-            img_rgb[m] = styled[m]
+            if opts.get("style") == "sticker":
+                ys, xs = np.where(m)
+                if len(xs):
+                    rect = {"x": int(xs.min()), "y": int(ys.min()),
+                            "w": int(xs.max() - xs.min() + 1),
+                            "h": int(ys.max() - ys.min() + 1), "ellipse": False}
+                    _sticker_for_rect(img_rgb, rect, opts)
+            else:
+                styled = style_whole(canvas, opts, rand)
+                img_rgb[m] = styled[m]
 
     if opts.get("boxFrames", False):
         draw_frames(img_rgb, boxes, opts)
