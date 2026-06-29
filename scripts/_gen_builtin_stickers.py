@@ -23,20 +23,30 @@ def _font(size):
 
 
 def heart():
-    im = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    d = ImageDraw.Draw(im)
+    # Classic parametric heart curve (x=16sin³t, y=13cos t−5cos2t−2cos3t−cos4t),
+    # filled as a polygon — a true heart silhouette, not circles+triangle. Rendered
+    # at 4× and downscaled (LANCZOS) for an anti-aliased edge.
     col = (230, 30, 60, 255)
-    cx = S / 2
-    r = S * 0.205          # lobe radius
-    top = S * 0.36         # lobe centre y
-    off = r * 0.92         # lobe centre x distance from middle (slight overlap → no gap)
-    lx, rx = cx - off, cx + off
-    # two symmetric top lobes
-    d.ellipse([lx - r, top - r, lx + r, top + r], fill=col)
-    d.ellipse([rx - r, top - r, rx + r, top + r], fill=col)
-    # bottom V: outer edge of each lobe down to a single point
-    d.polygon([(lx - r, top), (rx + r, top), (cx, S * 0.86)], fill=col)
-    im.save(OUT / "heart.png")
+    ss = 4
+    big = S * ss
+    im = Image.new("RGBA", (big, big), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    n = 480
+    raw = []
+    for i in range(n + 1):
+        t = 2 * math.pi * i / n
+        x = 16 * (math.sin(t) ** 3)
+        y = 13 * math.cos(t) - 5 * math.cos(2*t) - 2 * math.cos(3*t) - math.cos(4*t)
+        raw.append((x, -y))          # flip y: image y grows downward
+    xs = [p[0] for p in raw]
+    ys = [p[1] for p in raw]
+    minx, maxx, miny, maxy = min(xs), max(xs), min(ys), max(ys)
+    margin = 0.08 * big
+    sc = min((big - 2 * margin) / (maxx - minx), (big - 2 * margin) / (maxy - miny))
+    ox = (big - (maxx - minx) * sc) / 2 - minx * sc
+    oy = (big - (maxy - miny) * sc) / 2 - miny * sc
+    d.polygon([(x * sc + ox, y * sc + oy) for x, y in raw], fill=col)
+    im.resize((S, S), Image.LANCZOS).save(OUT / "heart.png")
 
 
 def star():
