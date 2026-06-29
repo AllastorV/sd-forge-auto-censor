@@ -42,7 +42,7 @@ except Exception as e:  # noqa: BLE001
 _OUT_DIR = Path(tempfile.gettempdir()) / "forge_auto_censor"
 _OUT_DIR.mkdir(exist_ok=True)
 
-STYLES = ["mosaic", "blur", "bar", "barsV", "barsH", "manga", "glitch"]
+STYLES = ["mosaic", "blur", "bar", "barsV", "barsH", "manga", "glitch", "sticker", "frosted", "static"]
 SHAPES = ["auto", "rect", "ellipse"]
 BG_EFFECTS = ["glitch", "grayscale", "blur",
               "reverse glitch", "reverse grayscale", "reverse blur", "none"]
@@ -164,6 +164,7 @@ def _quick(boxes, mode):
 def _censor(editor, boxes, checked, mode, style, shape, mosaic_blocks, blur_strength,
             glitch_intensity, glitch_seed, bar_count, bar_thickness, bar_color, padding, merge_gap,
             bg_effect, bg_intensity, box_frames, frame_labels, preset, conf, quick,
+            frost_amount, static_intensity, static_mono, static_scanlines,
             progress=gr.Progress()):
     bg = _bg_of(editor)
     if ce is None or bg is None:
@@ -193,6 +194,8 @@ def _censor(editor, boxes, checked, mode, style, shape, mosaic_blocks, blur_stre
         "padding": float(padding), "mergeGap": int(merge_gap),
         "bgEffect": bg_effect, "bgIntensity": int(bg_intensity),
         "boxFrames": bool(box_frames), "frameLabels": bool(frame_labels),
+        "frostAmount": int(frost_amount), "staticIntensity": int(static_intensity),
+        "staticMono": bool(static_mono), "staticScanlines": bool(static_scanlines),
     }
     progress(0.6, desc="Applying censor…")
     ts = int(time.time() * 1000)
@@ -292,6 +295,15 @@ def on_ui_tabs():
                     bar_thickness = gr.Slider(0.1, 1.0, value=0.55, step=0.05, label="Bar thickness",
                                               info="Bar width (vertical) / height (horizontal & manga) as a fraction of the gap. 1.0 = solid.")
                     glitch_intensity = gr.Slider(10, 100, value=70, step=1, label="Glitch intensity")
+                    frost_amount = gr.Slider(10, 100, value=60, step=1, label="Frost amount",
+                                             info="Frosted-glass blur strength (frosted style).")
+                    static_intensity = gr.Slider(10, 100, value=100, step=1, label="Static intensity",
+                                                 info="TV-static noise vs. original blend (static style).")
+                    with gr.Row():
+                        static_mono = gr.Checkbox(value=True, label="Static mono",
+                                                  info="Grayscale static (off = colour).")
+                        static_scanlines = gr.Checkbox(value=False, label="Static scanlines",
+                                                       info="Darken every other row (CRT look).")
                 with gr.Accordion("More options", open=False):
                     padding = gr.Slider(0.0, 0.5, value=0.08, step=0.01, label="Region padding",
                                         info="Grow each region a bit before censoring.")
@@ -326,7 +338,8 @@ def on_ui_tabs():
             _censor,
             [inp, boxes_state, classes, mode, style, shape, mosaic_blocks, blur_strength,
              glitch_intensity, glitch_seed, bar_count, bar_thickness, bar_color, padding, merge_gap,
-             bg_effect, bg_intensity, box_frames, frame_labels, preset, conf, quick],
+             bg_effect, bg_intensity, box_frames, frame_labels, preset, conf, quick,
+             frost_amount, static_intensity, static_mono, static_scanlines],
             [out, download, status],
         )
 
