@@ -115,8 +115,8 @@ with no detection at all.
 
 ## 🧷 Custom sticker library
 
-Pick **Censor style → sticker** to overlay a PNG on every detected region. The panel ships a
-handful of built-in stickers (heart, star, CENSORED bar, "no" sign, black bar) and lets you
+Pick **Censor style → sticker** to overlay a PNG on every detected region. The panel ships a set of
+built-in stickers (heart, star, cat, paws, a CENSORED bar, a "no" sign, a black bar) and lets you
 **upload your own** — dropped PNGs are copied into `stickers/custom/` (kept across restarts, never
 pushed). Tune **Fit** (cover / contain / stretch), **Scale**, **Opacity**, and **Rotation**. The
 sticker uses its own transparency, so the region shape selector doesn't apply. Works on the brush
@@ -128,8 +128,8 @@ single sticker instead.
 
 | | | |
 |:---:|:---:|:---:|
-| ![Built-in CENSORED bar](docs/sticker-bar.png) | ![Your own uploaded PNG](docs/sticker-cat.png) | ![Built-in star, one per region](docs/sticker-star.png) |
-| **Built-in** — the CENSORED tape bar. | **Your own** — any PNG you upload (here a custom cat). | **Per region** — a star on each detected box. |
+| ![Built-in CENSORED bar](docs/sticker-bar.png) | ![A cat sticker, one per region](docs/sticker-cat.png) | ![Built-in star, one per region](docs/sticker-star.png) |
+| **Built-in** — the CENSORED tape bar. | **Any PNG** — built-in or your own upload (here a cat). | **Per region** — a star on each detected box. |
 
 ---
 
